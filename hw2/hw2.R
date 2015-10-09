@@ -77,6 +77,7 @@ predicted.price.car.w.100k.miles <-
 # 6.1
 # Let's build a model including year and mileage in our covariates
 
+# First, define our rescaling function
 rescale <- function(x, xs) {
   (x - min(xs)) / (max(xs) - min(xs))
 } 
@@ -94,7 +95,7 @@ cv <- docvknn(x=used_cars[, .(normalized.mileage, normalized.year)],
 # convert to RMSE
 cv <- sqrt(cv/length(used_cars$price))
 
-# how's it look?
+# how does our CV plot look?
 rgy <- range(cv)
 plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0,
      xlab="log(1/k)", ylab="RMSE")
@@ -131,7 +132,7 @@ ggplot() +
 fits <-
   data.frame(y=used_cars$price, 
              mileage=used_cars$cv.predicted, 
-             mileage.years=predicted.mileage.year)
+             mileage.year=predicted.mileage.year)
 
 cor(fits)
 pairs(fits)

@@ -44,6 +44,14 @@ cv <- docvknn(x=matrix(used_cars$mileage),
 # convert to RMSE
 cv <- sqrt(cv/length(used_cars$price))
 
+# how does our CV plot look?
+rgy <- range(cv)
+plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0,
+     xlab="log(1/k)", ylab="RMSE")
+
+# save this cv as cv.mileage
+cv.mileage <- cv
+
 # Choose the k with the minimum Cross-validation RMSE
 k.cv <- which.min(cv)
 ```
@@ -99,3 +107,97 @@ predicted.price.car.w.100k.miles <-
 predicted.price.car.w.100k.miles
 ```
 
+# 6.1
+## Use kNN to get a prediction for a 2008 car with 75k miles
+
+```{r}
+# Let's build a model including year and mileage in our covariates
+
+# First, define our rescaling function
+rescale <- function(x, xs) {
+  (x - min(xs)) / (max(xs) - min(xs))
+} 
+
+# first, lets scale our covariates
+used_cars$normalized.mileage <- rescale(used_cars$mileage, used_cars$mileage)
+used_cars$normalized.year <- rescale(used_cars$year, used_cars$year)
+
+cv <- docvknn(x=used_cars[, .(normalized.mileage, normalized.year)], 
+              y=used_cars$price, 
+              k=kv,
+              nfold=n.folds)
+
+
+# convert to RMSE
+cv <- sqrt(cv/length(used_cars$price))
+
+# how does our CV plot look?
+rgy <- range(cv)
+plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0,
+     xlab="log(1/k)", ylab="RMSE")
+
+# Choose the k with the minimum Cross-validation RMSE
+k.cv <- which.min(cv)
+k.cv
+
+# fit the whole model
+predicted.mileage.year <- 
+  kknn(price ~ normalized.mileage + normalized.year,
+     train=used_cars, test=used_cars[, .(normalized.mileage, normalized.year)],
+     k=k.cv, kernel='rectangular')$fitted.values
+
+
+```
+
+Let's define our test car
+
+```{r}
+
+# let's predict the value of a 2008 car having 75,000 miles
+test.car <- 
+  data.frame(normalized.mileage=rescale(75000, used_cars$mileage), 
+             normalized.year=rescale(2008, used_cars$year))
+
+predicted.price <- 
+  kknn(price ~ normalized.mileage + normalized.year,
+       train=used_cars, test=test.car,
+       k=k.cv, kernel='rectangular')$fitted.values
+```
+
+### Is our predictive accuracy better using this model?
+We could look at RMSE...
+
+```{r}
+
+
+# is our RMSE from using mileage and year better than our RMSE from using only mileage?
+ggplot() + 
+  geom_line(aes(x=kv, y=cv, color='mileage and year')) + 
+  geom_line(aes(x=kv, y=cv.mileage, color='mileage only')) + 
+  ggtitle('RMSE across Model') +
+  xlab('k') + ylab('RMSE') + 
+  scale_colour_manual(name='Model',
+                      values=c("mileage and year"='red',
+                               "mileage only"="green"))
+```
+
+But let's check the correlations of our predicted values vs. actual values instead:
+```{r}
+
+fits <-
+  data.frame(y=used_cars$price, 
+             mileage=used_cars$cv.predicted, 
+             mileage.year=predicted.mileage.year)
+
+cor(fits)
+```
+
+The correlation suggests that our mileage and year model provides a better fit than our bivariate model.  
+
+And finally, 
+
+```{r}
+pairs(fits)
+```
+
+the plots confirm this.  Our mileage and year model appears to have a much tighter fit.  
