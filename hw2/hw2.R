@@ -31,6 +31,9 @@ rgy <- range(cv)
 plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0,
      xlab="log(1/k)", ylab="RMSE")
 
+# save this cv as cv.mileage
+cv.mileage <- cv
+
 # Choose the k with the minimum Cross-validation RMSE
 k.cv <- which.min(cv)
 
@@ -71,9 +74,65 @@ predicted.price.car.w.100k.miles <-
        train=used_cars, test=car.w.100k.miles,
        k=k.cv, kernel='rectangular')$fitted.values
 
+# 6.1
+# Let's build a model including year and mileage in our covariates
+
+rescale <- function(x, xs) {
+  (x - min(xs)) / (max(xs) - min(xs))
+} 
+
+# first, lets scale our covariates
+used_cars$normalized.mileage <- rescale(used_cars$mileage, used_cars$mileage)
+used_cars$normalized.year <- rescale(used_cars$year, used_cars$year)
+
+cv <- docvknn(x=used_cars[, .(normalized.mileage, normalized.year)], 
+              y=used_cars$price, 
+              k=kv,
+              nfold=n.folds)
 
 
+# convert to RMSE
+cv <- sqrt(cv/length(used_cars$price))
 
+# how's it look?
+rgy <- range(cv)
+plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0,
+     xlab="log(1/k)", ylab="RMSE")
 
+# Choose the k with the minimum Cross-validation RMSE
+k.cv <- which.min(cv)
 
+# fit the whole model
+predicted.mileage.year <- 
+  kknn(price ~ normalized.mileage + normalized.year,
+     train=used_cars, test=used_cars[, .(normalized.mileage, normalized.year)],
+     k=k.cv, kernel='rectangular')$fitted.values
+
+# let's predict the value of a 2008 car having 75,000 miles
+test.car <- 
+  data.frame(normalized.mileage=rescale(75000, used_cars$mileage), 
+             normalized.year=rescale(2008, used_cars$year))
+
+predicted.price <- 
+  kknn(price ~ normalized.mileage + normalized.year,
+       train=used_cars, test=test.car,
+       k=k.cv, kernel='rectangular')$fitted.values
+
+# is our RMSE from using mileage and year better than our RMSE from using only mileage?
+ggplot() + 
+  geom_line(aes(x=kv, y=cv, color='mileage and year')) + 
+  geom_line(aes(x=kv, y=cv.mileage, color='mileage only')) + 
+  ggtitle('RMSE across Model') +
+  xlab('k') + ylab('RMSE') + 
+  scale_colour_manual(name='Model',
+                      values=c("mileage and year"='red',
+                               "mileage only"="green"))
+
+fits <-
+  data.frame(y=used_cars$price, 
+             mileage=used_cars$cv.predicted, 
+             mileage.years=predicted.mileage.year)
+
+cor(fits)
+pairs(fits)
 
