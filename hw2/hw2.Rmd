@@ -1,0 +1,37 @@
+---
+title: "hw2"
+author: "Aaron Politsky"
+date: "October 9, 2015"
+output: pdf_document
+---
+
+
+# Load Libraries
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(kknn)
+```
+
+
+# Data Import
+
+```{r}
+# download data and read data into data.table format
+used_cars <- fread(
+  'https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars_small.csv')
+# count number of samples
+nb_samples <- nrow(used_cars)
+# sort data set by increasing mileage
+setkey(used_cars, mileage)
+used_cars
+```
+
+You can also embed plots, for example:
+
+```{r, echo=FALSE}
+plot(cars)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
