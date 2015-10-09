@@ -17,15 +17,19 @@ used_cars
 n.folds <- 5
 
 set.seed(99) # to be consistent with hw1
+kv <- 2:100
 cv <- docvknn(x=matrix(used_cars$mileage), 
               y=used_cars$price, 
-              k=2:100,
+              k=kv,
               nfold=n.folds)
 
+# convert to RMSE
 cv <- sqrt(cv/length(used_cars$price))
 
 # how's it look?
-plot(cv)
+rgy <- range(cv)
+plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0,
+     xlab="log(1/k)", ylab="RMSE")
 
 # Choose the k with the minimum Cross-validation RMSE
 k.cv <- which.min(cv)
@@ -35,10 +39,8 @@ cv.model <- kknn(price ~ mileage,
                  train=used_cars, test=used_cars[ , .(mileage)],
                  k=k.cv, kernel='rectangular')
 
-# add this to our data.table
+# add the predicted values to our data.table
 used_cars$cv.predicted <- cv.model$fitted.values
-
-
 
 # Produce the eyeball fit from hw1
 k <- 30
@@ -62,31 +64,16 @@ g <- g +
                                "eyeball predicted"="green"))
 plot(g)
 
-plot_used_cars_data <- function(used_cars_data,
-                                title='Used Cars: price vs. mileage',
-                                plot_predicted=TRUE) {
-  g <- ggplot(used_cars_data) +
-    geom_point(aes(x=mileage, y=price, color='actual'), size=1) +
-    ggtitle(title) +
-    xlab('milage') + ylab('price')
-  
-  if (plot_predicted) {
-    g <- g +
-      geom_line(aes(x=mileage, y=predicted_price, color='predicted'), size=0.6) +
-      scale_colour_manual(name='price',
-                          values=c(actual='blue', predicted='darkorange'))
-  } else {
-    g <- g +
-      scale_colour_manual(name='price',
-                          values=c(actual='blue'))
-  }
-  
-  g <- g +
-    theme(plot.title=element_text(face='bold', size=24),
-          axis.title=element_text(face='italic', size=18))
-  
-  g
-}
+# simulate a car with 100k miles
+car.w.100k.miles <- data.frame(mileage=100000)
+predicted.price.car.w.100k.miles <- 
+  kknn(price ~ mileage,
+       train=used_cars, test=car.w.100k.miles,
+       k=k.cv, kernel='rectangular')$fitted.values
 
-plot_used_cars_data(used_cars, plot_predicted=FALSE)
+
+
+
+
+
 

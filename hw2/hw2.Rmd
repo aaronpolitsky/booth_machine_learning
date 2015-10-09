@@ -1,21 +1,22 @@
 ---
-title: "hw2"
+title: "Homework 2"
 author: "Aaron Politsky"
 date: "October 9, 2015"
 output: pdf_document
 ---
 
 
-# Load Libraries
+# 5.1
+## Load Libraries and Source Dependencies
 
 ```{r}
 library(data.table)
 library(ggplot2)
 library(kknn)
+source("docv.R")
 ```
 
-
-# Import the Used Car data
+## Import the Used Car data
 
 ```{r}
 # download data and read data into data.table format
@@ -24,17 +25,77 @@ if(!exists("used_cars")) {
     'https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars_small.csv')  
 }
 
-# count number of samples
-nb_samples <- nrow(used_cars)
 # sort data set by increasing mileage
 setkey(used_cars, mileage)
-used_cars
 ```
 
-You can also embed plots, for example:
+## Cross-validate using 5-fold, for k from 2 to 100
 
-```{r, echo=FALSE}
-plot(cars)
+```{r}
+n.folds <- 5
+
+set.seed(99) # to be consistent with hw1
+kv <- 2:100
+cv <- docvknn(x=matrix(used_cars$mileage), 
+              y=used_cars$price, 
+              k=kv,
+              nfold=n.folds)
+
+# convert to RMSE
+cv <- sqrt(cv/length(used_cars$price))
+
+# Choose the k with the minimum Cross-validation RMSE
+k.cv <- which.min(cv)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+We will use a k value of $k = `r k.cv`.  Let's fit using this value and the eyeball value of 30:
+
+```{r}
+
+# Produce a model with this k
+cv.model <- kknn(price ~ mileage,
+                 train=used_cars, test=used_cars[ , .(mileage)],
+                 k=k.cv, kernel='rectangular')
+
+# add the predicted values to our data.table
+used_cars$cv.predicted <- cv.model$fitted.values
+
+# Produce the eyeball fit from hw1
+k <- 30
+eyeball <- kknn(price ~ mileage,
+                train=used_cars, test=used_cars[ , .(mileage)],
+                k=k, kernel='rectangular')
+
+# add this prediction to used_cars data.table
+used_cars$eyeball.predicted <- eyeball$fitted.values
+
+g <- ggplot(used_cars) + 
+  geom_point(aes(x=mileage, y=price, color='actual'), size=1) + 
+  ggtitle('Used Cars: price vs. mileage') +
+  xlab('mileage') + ylab('price')
+g <- g + 
+  geom_line(aes(x=mileage, y=cv.predicted, color='cv predicted'), size=0.6) +
+  geom_line(aes(x=mileage, y=eyeball.predicted, color='eyeball predicted'), size=0.6) + 
+  scale_colour_manual(name='price',
+                      values=c(actual='blue', 
+                               "cv predicted"='red',
+                               "eyeball predicted"="green"))
+plot(g)
+
+```
+
+In this case, our eyes have not deceived us.  The fits are very close.  This makes sense, because $cv[19] = `r cv[19]` and $cv[30] = `r cv[30]`.  The fit having the larger k value seemse to have slighly less variance (the green curve seems to be "within" the red curve) than than the fit with the smaller k value, which is consistent with the theory of knn.  
+
+## Predicting the price of a car with 100k miles 
+Now, let's predict the price of a car having 100k miles using our cross-validation k to train a model using the entire used car dataset.  
+
+```{r}
+# simulate a car with 100k miles
+car.w.100k.miles <- data.frame(mileage=100000)
+predicted.price.car.w.100k.miles <- 
+  kknn(price ~ mileage,
+       train=used_cars, test=car.w.100k.miles,
+       k=k.cv, kernel='rectangular')$fitted.values
+predicted.price.car.w.100k.miles
+```
+
