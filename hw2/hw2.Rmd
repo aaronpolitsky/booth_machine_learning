@@ -15,12 +15,15 @@ library(kknn)
 ```
 
 
-# Data Import
+# Import the Used Car data
 
 ```{r}
 # download data and read data into data.table format
-used_cars <- fread(
-  'https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars_small.csv')
+if(!exists("used_cars")) {
+  used_cars <- fread(
+    'https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars_small.csv')  
+}
+
 # count number of samples
 nb_samples <- nrow(used_cars)
 # sort data set by increasing mileage
