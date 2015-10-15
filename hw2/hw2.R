@@ -28,7 +28,7 @@ cv <- sqrt(cv/length(used_cars$price))
 
 # how's it look?
 rgy <- range(cv)
-plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0,
+plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,
      xlab="log(1/k)", ylab="RMSE")
 
 # save this cv as cv.mileage
@@ -97,7 +97,7 @@ cv <- sqrt(cv/length(used_cars$price))
 
 # how does our CV plot look?
 rgy <- range(cv)
-plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0,
+plot(log(1/kv),cv,type="l",col="red",ylim=rgy,lwd=2,
      xlab="log(1/k)", ylab="RMSE")
 
 # Choose the k with the minimum Cross-validation RMSE
