@@ -3,6 +3,13 @@
 library(rpart)
 library(randomForest)
 library(gbm) #boosting
+library(plyr)
+library(foreach) # for parallelization
+
+# declare how many processors I have for parallelization
+NUM.CORES <- 4
+library(doMC) # parallelize
+registerDoMC(NUM.CORES) # register 4 cores
 
 # import the data
 used.cars <- read.csv("UsedCars.csv")
@@ -22,6 +29,8 @@ test  <- used.cars[ii[n1+n2+1:n3],]
 # Experiment with and validate different approaches
 # First, using mileage and year
 
+
+#################
 # Single Trees
 big.mileage.year.tree <- 
   rpart(price ~ mileage + year, data=train, method="anova", 
@@ -32,34 +41,232 @@ best.cp <- big.mileage.year.tree$cptable[index.of.best.cp, "CP"]
 best.size <- big.mileage.year.tree$cptable[index.of.best.cp, "nsplit"] + 1
 
 # prune to best tree size
-mileage.year.tree <- prune(mileage.year.tree, cp=best.cp)
-#plot(mileage.year.tree, uniform = T)
-#text(mileage.year.tree, digits=4, n=T)
+mileage.year.tree <- prune(big.mileage.year.tree, cp=best.cp)
 
-# Validate
-pred.val.mileage.year.tree <- predict(mileage.year.tree, newdata=val)
+# Prediction
+pred.val.tree.mileage.year <- predict(mileage.year.tree, newdata=val)
 
+#################
 # Random Forests
+
+# try out different parameters
+m.try <- c(1,2) # random forests, bagging
+n.tree <- c(100, 500)
+
+# create a data frame of each combo of these options
+random.forest.params <- expand.grid(data.frame(cbind(m.try, n.tree)))
+
+train.mileage.year <- train[,c("price", "mileage", "year")]
+val.mileage.year <- val[,c("price", "mileage", "year")]
+
+# parallelize the plyr loop
+rf.list.mileage.year <- 
+  # m.try is only valid for 1 or 2 here
+  dlply(random.forest.params, .(m.try, n.tree), function(x) {
+    randomForest(price ~ mileage + year, data=train.mileage.year, 
+                 mtry=x$m.try, ntree=x$n.tree,
+                 xtest=val.mileage.year[,c("mileage", 'year')], ytest=val$price)
+  }, .parallel=T)
+
+
+# generate in-bag and oob loss: rmse
+rf.perf.mileage.year <-
+  ldply(rf.list.mileage.year, c(
+    # here we make use of the oob predicted values generated in our forest call
+    olrf=function(rf) {sqrt(mean((val$price - rf$test$predicted)^2))},
+    ilrf=function(rf) {sqrt(mean((train$price - rf$predicted)^2))}
+  ))
+
+# which settings were the best?
+best.rf.perf.mileage.year <- rf.perf.mileage.year[which.min(rf.perf.mileage.year$olrf),]
+
+# the best forest object
+best.rf.mileage.year <- rf.list.mileage.year[[which.min(rf.perf.mileage.year$olrf)]]
+
+# predict:
+pred.val.rf.mileage.year <- best.rf.mileage.year$test$predicted
+  
+#################
+# Boosting
+# first with only mileage, year
+depth <- c(4,10)
+n.tree <- c(1000, 4000)
+lambda <- c(.1, .001)
+boost.params <- expand.grid(data.frame(cbind(n.tree, lambda, depth)))
+
+boost.list.mileage.year <- 
+  dlply(boost.params, .(depth, n.tree, lambda), .parallel=T, function(x) {
+    gbm(price ~ mileage + year, 
+        data=train.mileage.year,
+        distribution="gaussian",
+        interaction.depth=x$depth,
+        n.trees=x$n.tree,
+        shrinkage=x$lambda)    
+  })
+  
+# evaluate using min RMSE
+boost.perf.mileage.year <-
+  ldply(boost.list.mileage.year, c(
+    ilb = function(b) {sqrt(mean((train$price - b$fit)^2))},
+    olb = function(b) {sqrt(mean((val$price - 
+                                    predict(b, 
+                                            newdata=val.mileage.year, 
+                                            n.trees=b$n.trees))^2))}
+  ))
+
+# best settings
+best.boost.perf.mileage.year <- 
+  boost.perf.mileage.year[which.min(boost.perf.mileage.year$olb),]
+
+# best model
+best.boost.mileage.year <- 
+  boost.list.mileage.year[[which.min(boost.perf.mileage.year$olb)]]
+
+# predict
+pred.val.boost.mileage.year <- predict(best.boost.mileage.year, 
+                                       newdata=val.mileage.year, 
+                                       n.trees=best.boost.mileage.year$n.trees)
+
+# Let's compare trees, rf, boosting
+# compare all models
+pairs(cbind(val$price, 
+            pred.val.tree.mileage.year, 
+            pred.val.rf.mileage.year,
+            pred.val.boost.mileage.year))
+cor(cbind(val$price, 
+          pred.val.tree.mileage.year, 
+          pred.val.rf.mileage.year,
+          pred.val.boost.mileage.year))
+
+
+##################################
+# That was nice, but let's do it with all covariates
+
+#################
+# Single Trees
+big.tree <- 
+  rpart(price ~ ., data=train, method="anova", 
+        control=rpart.control(minsplit = 5, cp = 0.00005))
+
+index.of.best.cp <- which.min(big.tree$cptable[,"xerror"])
+best.cp <- big.tree$cptable[index.of.best.cp, "CP"]
+best.size <- big.tree$cptable[index.of.best.cp, "nsplit"] + 1
+
+# prune to best tree size
+tree <- prune(big.tree, cp=best.cp)
+
+# Predict
+pred.val.tree <- predict(tree, newdata=val)
+
+#################
+# Forests & Bagging
+
 # try out different parameters
 m.try <- c(floor(sqrt(ncol(used.cars)-1)), ncol(used.cars)-1) # random forests, bagging
-n.tree <- c(100, 500, 1000)
+n.tree <- c(100, 500)
+# create a data frame of each combo of these options
 random.forest.params <- expand.grid(data.frame(cbind(m.try, n.tree)))
 
 # for each combo of options, fit trees on train while validating on val
-rf.list <- dlply(random.forest.params, .(m.try, n.tree), function(x) {
-  randomForest(price ~ mileage + year, data=train, mtry=x$m.try, ntree=x$n.tree,
-               xtest=val[,c("mileage", "year")], ytest=val$price)
-}, .progress="text")
+rf.list <- 
+  dlply(random.forest.params, .(m.try, n.tree), function(x) {
+    randomForest(price ~ ., data=train, 
+                 mtry=x$m.try, ntree=x$n.tree,
+                 xtest=val[,names(val)!="price"], ytest=val$price)
+  }, .parallel=T)
 
-# generate in-bag and oob loss: 1-rsq
+# generate in-bag and oob loss: rmse
 rf.perf <-
   ldply(rf.list, c(
-    ilrf=function(rf) {1-max(rf$rsq)}, 
-    olrf=function(rf) {1-max(rf$test$rsq)}
+    olrf=function(rf) {sqrt(mean((val$price - rf$test$predicted)^2))},
+    ilrf=function(rf) {sqrt(mean((train$price - rf$predicted)^2))} 
   ))
-  
 
-# predict 
-predicted.price.pruned.mileage.year <- predict(mileage.year.tree) 
-plot(used.cars$price, predicted.price.pruned.mileage.year)
-abline(0,1, col="red", lwd=3)
+best.rf.perf <- rf.perf[which.min(rf.perf$olrf),]
+print(best.rf.perf)
+
+best.rf <- rf.list[[which.min(rf.perf$olrf)]]
+#best.rf <- randomForest(price ~ ., data=train, 
+#                        mtry=best.rf.perf$m.try, 
+#                        ntree=best.rf.perf$n.tree)
+
+# Validate the best forest model
+#pred.val.rf <- predict(best.rf,
+#                       newdata=val)
+pred.val.rf <- best.rf$test$predicted
+
+##############
+# Boosting
+
+boost.list <- 
+  dlply(boost.params, .(depth, n.tree, lambda), .parallel=T, function(x) {
+    gbm(price ~ ., 
+        data=train,
+        distribution="gaussian",
+        interaction.depth=x$depth,
+        n.trees=x$n.tree,
+        shrinkage=x$lambda)    
+  })
+
+# evaluate performance
+boost.perf <-
+  ldply(boost.list, c(
+    ilb = function(b) {sqrt(mean((train$price - b$fit)^2))},
+    olb = function(b) {sqrt(mean((val$price - 
+                                    predict(b, 
+                                            newdata=val.mileage.year, 
+                                            n.trees=b$n.trees))^2))}
+  ))
+
+best.boost <- boost.list[[which.min(boost.perf$olb)]]
+best.boost.perf <- boost.perf[which.min(boost.perf$olb),]
+
+# Predict using 
+pred.val.boost <- predict(best.boost, newdata=val, n.trees=best.boost$n.trees)
+
+##############
+# Multiple Regression
+lm.fit <- lm(price ~ ., data=train)
+lm.in.err <- sqrt(mean((train$price - lm.fit$fitted.values)^2))
+pred.val.lm <- predict.lm(lm.fit, newdata=val)
+lm.out.err <- sqrt(mean((val$price - pred.val.lm)^2))
+
+# compare all models
+pairs(cbind(val$price, pred.val.tree, pred.val.rf, pred.val.boost, pred.val.lm))
+cor(cbind(val$price, pred.val.tree, pred.val.rf, pred.val.boost, pred.val.lm))
+
+##############################
+#  Now let's combine the train and validation set and test our chosen methods
+train.val <- rbind(train, val)
+
+# refit random forest
+refit.rf <- 
+  foreach(ntree=rep(best.rf.perf$n.tree/NUM.CORES, NUM.CORES), 
+          .combine=combine, 
+          .multicombine=T, 
+          .packages='randomForest') %dopar%
+  randomForest(price ~ ., data=train.val, mtry=best.rf.perf$m.try, ntree=ntree,
+               xtest=test[,names(test) != "price"], ytest=test$price)
+
+# Our out of sample RMSE is:
+oob.rmse <- sqrt(mean((test$price - refit.rf$test$predicted)^2))
+
+#######################
+# trash bin 
+
+# PARALLEL ATTEMPTS
+# for each combo of options, fit trees on train and validate on val
+if(F) {
+  rf.list.mileage.year <- 
+    # m.try is only valid for 1 or 2 here
+    dlply(random.forest.params, .(c(1,2), n.tree), function(x) {
+      
+      # parallelize growth of each forest and combine into one large forest
+      foreach(ntree=rep(x$n.tree/NUM.CORES, NUM.CORES), 
+              .combine=combine, 
+              .multicombine=T, 
+              .packages='randomForest') %dopar%
+        randomForest(price ~ mileage + year, data=train, mtry=x$m.try, ntree=ntree,
+                     xtest=val[,c("mileage", 'year')], ytest=val$price)
+    }, .progress="text")
+}
