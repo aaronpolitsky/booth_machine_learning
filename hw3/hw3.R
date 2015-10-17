@@ -127,6 +127,11 @@ pred.val.boost.mileage.year <- predict(best.boost.mileage.year,
                                        newdata=val.mileage.year, 
                                        n.trees=best.boost.mileage.year$n.trees)
 
+# save this to load during markdown run:
+save(pred.val.tree.mileage.year,  file="predictions_mileage_year_tree.Rdata")
+save(pred.val.rf.mileage.year,    file="predictions_mileage_year_rf.Rdata")
+save(pred.val.boost.mileage.year, file="predictions_mileage_year_boost.Rdata") 
+
 # Let's compare trees, rf, boosting
 # compare all models
 pairs(cbind(val$price, 
@@ -183,7 +188,6 @@ rf.perf <-
   ))
 
 best.rf.perf <- rf.perf[which.min(rf.perf$olrf),]
-print(best.rf.perf)
 
 best.rf <- rf.list[[which.min(rf.perf$olrf)]]
 #best.rf <- randomForest(price ~ ., data=train, 
@@ -214,7 +218,7 @@ boost.perf <-
     ilb = function(b) {sqrt(mean((train$price - b$fit)^2))},
     olb = function(b) {sqrt(mean((val$price - 
                                     predict(b, 
-                                            newdata=val.mileage.year, 
+                                            newdata=val, 
                                             n.trees=b$n.trees))^2))}
   ))
 
@@ -223,6 +227,7 @@ best.boost.perf <- boost.perf[which.min(boost.perf$olb),]
 
 # Predict using 
 pred.val.boost <- predict(best.boost, newdata=val, n.trees=best.boost$n.trees)
+
 
 ##############
 # Multiple Regression
@@ -234,6 +239,11 @@ lm.out.err <- sqrt(mean((val$price - pred.val.lm)^2))
 # compare all models
 pairs(cbind(val$price, pred.val.tree, pred.val.rf, pred.val.boost, pred.val.lm))
 cor(cbind(val$price, pred.val.tree, pred.val.rf, pred.val.boost, pred.val.lm))
+
+save(pred.val.tree,  file="pred.val.tree.Rdata")
+save(pred.val.rf,    file="pred.val.rf.Rdata")
+save(pred.val.boost, file="pred.val.boost.Rdata")
+save(pred.val.lm,    file="pred.val.lm.Rdata")
 
 ##############################
 #  Now let's combine the train and validation set and test our chosen methods
