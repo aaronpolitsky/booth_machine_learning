@@ -176,4 +176,119 @@ system.time({
 )
 identical(asdf, orange.train)
 
+# check our work
+all.equal(
+  numeric.input.feature.means,
+  sapply(orange.train[ , numeric.input.feature.names, with=FALSE], mean))
 
+
+#########
+# Categorical features:  cleaning
+
+categorical.input.feature.names <- 
+  input.feature.names[input.feature.classes == 'factor']
+
+num.categorical.input.feature.levels <-
+  sapply(orange.train[ , categorical.input.feature.names, with=FALSE],
+         function(col) length(levels(col)))
+
+num.categorical.input.feature.levels
+
+# discard those with greater than 500 levels, as they're probably text.  
+
+categorical.input.feature.names <-
+  categorical.input.feature.names[num.categorical.input.feature.levels <= 500]
+
+orange.train <-
+  orange.train[ , c(numeric.input.feature.names, categorical.input.feature.names), with=FALSE]
+
+# let's make NA values its own category called zzzMissing
+
+orig.orange.train <- copy(orange.train)
+system.time(
+  lapply(categorical.input.feature.names, function(colname) {
+    col <- orange.train[[colname]]
+    col <- addNA(col, ifany=T)
+    levels(col)[is.na(levels(col))] <- 'zzzMISSING'
+    orange.train[, colname := col, with=F]
+  })
+)
+
+# For each categorical feature, collapse the long tail categories (less than 5%)
+# keep track of the categories we collapsed, per feature
+
+collapsed.categories.per.feature <- 
+  lapply(categorical.input.feature.names, function(x) {character()})
+
+orig.categorical.input.feature.names <- categorical.input.feature.names
+
+asdf <- copy(orange.train)
+
+
+system.time( {
+  lapply(categorical.input.feature.names, function(colname) {
+    col <- asdf[[colname]]
+    lapply(levels(col), function(level) {
+      
+      level.rows <-  col == level
+      if(sum(level.rows) < 0.05 * length(col)) {
+        collapsed.categories.per.feature[[colname]] <- 
+          c(collapsed.categories.per.feature[[colname]], level)
+        asdf[level.rows, colname := 'zzzOTHER', with=F]
+      }
+    })
+    col <- droplevels(col)
+    asdf[,colname := col, with=F]
+  })
+  
+  for(colname in categorical.input.feature.names) {
+    # discard columns which have only one non-missing or non-other category
+    levels <- levels(asdf[[colname]])
+    if (length(levels[(levels != 'zzzMISSING') & (levels != 'zzzOTHER')]) < 2) {
+      #removed.columns <- c(removed.columns, colname)
+      categorical.input.feature.names <- setdiff(categorical.input.feature.names, colname)
+    }
+  }
+}
+)
+
+my.cat.features <- categorical.input.feature.names
+
+
+orig.orange.train <- copy(orange.train)
+
+categorical.input.feature.names <- orig.categorical.input.feature.names
+
+system.time({
+  collapsed_categories <- list()
+  
+  for (cat_col in categorical.input.feature.names) {
+    
+    missing_value_row_yesno <- is.na(orange.train[[cat_col]])
+    if (sum(missing_value_row_yesno) > 0) {
+      orange.train[missing_value_row_yesno, cat_col := 'zzzMISSING', with=FALSE]
+    }
+    
+    x <- orange.train[[cat_col]]
+    for (cat in levels(x)) {
+      cat_rows_yesno <- x == cat
+      if (sum(cat_rows_yesno) < .05 * num.train.samples) {
+        if (!(cat_col %in% names(collapsed_categories))) {
+          collapsed_categories[[cat_col]] <- character()
+        }
+        collapsed_categories[[cat_col]] <- c(collapsed_categories[[cat_col]], cat)
+        orange.train[cat_rows_yesno, cat_col := 'zzzOTHER', with=FALSE]
+        levels(orange.train[[cat_col]])[levels(orange.train[[cat_col]]) == cat] <- NA
+      }
+    }
+    
+    cats <- levels(orange.train[[cat_col]]) 
+    if ((length(cats) == 1) ||
+        (length(cats[(cats != 'zzzMISSING') & (cats != 'zzzOTHER')]) < 2)) {
+      categorical.input.feature.names <- setdiff(categorical.input.feature.names, cat_col)
+    }
+  }
+})
+
+identical(orange.train, asdf)
+identical(my.cat.features, categorical.input.feature.names)
