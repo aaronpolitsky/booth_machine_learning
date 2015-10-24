@@ -327,6 +327,7 @@ caret_train_control <- trainControl(
 # At the end of the round, rank the variables by importance, across all forests. 
 # Choose the top 32 and form a bracket.  
 
+if(T) {
 
 # First, shuffle the order of features and set up divisions
 set.seed(99)
@@ -342,24 +343,27 @@ B <- 500
 importance <-data.frame() 
 
 # division play
-for(division in list(north, south, east, west)) {
+division.rf.models <- list()
+for(i in 1:4) {
+  division <- list(north, south, east, west)[[i]]
   print(system.time(
-    division.rf.model <- train(
+    division.rf.models[[i]] <- train(
       x=orange.train[, competitors[division], with=FALSE],
       y=upsell.train,
       method='parRF',     # parallel Random Forest
       metric=caret_optimized_metric,
       ntree=B,            # number of trees in the Random Forest
-      nodesize=300,       # minimum node size set small enough to allow for complex trees,
+      nodesize=100,       # minimum node size set small enough to allow for complex trees,
       # but not so small as to require too large B to eliminate high variance
       importance=T,       #  evaluate importance of predictors
       keep.inbag=FALSE,   # not relevant as we're using Cross Validation
       trControl=caret_train_control,
       tuneGrid=NULL)
   ))
-  div.imp <- varImp(division.rf.model, scale = F)
+  div.imp <- varImp(division.rf.models[[i]], scale = F)
   importance <- rbind(importance, div.imp$importance[2])
 }
+
 
 plot(importance[order(importance, decreasing = T),])
 
@@ -377,22 +381,24 @@ group.d <- playoff.teams[c(seq(4,16,4),seq(29,17,-4))]
 B <- 300
 set.seed(99)
 round.1.importance <- data.frame()
-for(g in list(group.a, group.b, group.c, group.d)) {
+round.1.rf.models <- list()
+for(i in 1:4) {
+  g <- list(group.a, group.b, group.c, group.d)[[i]]
   print(system.time(
-    g.rf.model <- train(
+    round.1.rf.models[[i]] <- train(
       x=orange.train[, g, with=FALSE],
       y=upsell.train,
       method='parRF',     # parallel Random Forest
       metric=caret_optimized_metric,
       ntree=B,            # number of trees in the Random Forest
-      nodesize=800,       # minimum node size set small enough to allow for complex trees,
+      nodesize=100,       # minimum node size set small enough to allow for complex trees,
       # but not so small as to require too large B to eliminate high variance
       importance=T,       #  evaluate importance of predictors
       keep.inbag=FALSE,   # not relevant as we're using Cross Validation
       trControl=caret_train_control,
       tuneGrid=NULL)
   ))
-  imp <- varImp(g.rf.model, scale = F)
+  imp <- varImp(round.1.rf.models[[i]], scale = F)
   round.1.importance <- rbind(round.1.importance, imp$importance[2])
 }
 
@@ -409,22 +415,24 @@ nlcs <- round.2.teams[c(2,4,6,8,15,13,11,9)]
 B <- 300
 set.seed(99)
 round.2.importance <- data.frame()
-for(teams in list(alcs,nlcs)) {
+round.2.rf.models <- list()
+for(i in 1:2) {
+  teams <- list(alcs, nlcs)[[i]]
   print(system.time(
-    g.rf.model <- train(
+    round.2.rf.models[[i]] <- train(
       x=orange.train[, teams, with=FALSE],
       y=upsell.train,
       method='parRF',     # parallel Random Forest
       metric=caret_optimized_metric,
       ntree=B,            # number of trees in the Random Forest
-      nodesize=800,       # minimum node size set small enough to allow for complex trees,
+      nodesize=100,       # minimum node size set small enough to allow for complex trees,
       # but not so small as to require too large B to eliminate high variance
       importance=T,       #  evaluate importance of predictors
       keep.inbag=FALSE,   # not relevant as we're using Cross Validation
       trControl=caret_train_control,
       tuneGrid=NULL)
   ))
-  imp <- varImp(g.rf.model, scale = F)
+  imp <- varImp(round.2.rf.models[[i]], scale = F)
   round.2.importance <- rbind(round.2.importance, imp$importance[2])
 }
 
@@ -438,6 +446,8 @@ plot(finalists)
 # lets choose the ones that have positive importance.
 champs <- finalists[finalists >= 0]
 
+# what type of predictors are we working with?
+input.feature.classes[names(champs)]
 
 ##################
 # Fit our championship model
@@ -450,7 +460,7 @@ print(system.time(
     method='parRF',     # parallel Random Forest
     metric=caret_optimized_metric,
     ntree=B,            # number of trees in the Random Forest
-    nodesize=800,       # minimum node size set small enough to allow for complex trees,
+    nodesize=100,       # minimum node size set small enough to allow for complex trees,
     # but not so small as to require too large B to eliminate high variance
     importance=FALSE,       #  Don't much care now.
     keep.inbag=FALSE,   # not relevant as we're using Cross Validation
@@ -458,4 +468,163 @@ print(system.time(
     tuneGrid=NULL)
 ))
 
+}
+########################################################################################
+# Prep our validation and test data
 
+champ.factors <- names(champs)[input.feature.classes[names(champs)]=='factor']
+
+# NA values?  
+sapply(champ.factors, function(cf) sum(is.na(orange.valid[[cf]])))
+sapply(champ.factors, function(cf) sum(is.na(orange.test[[cf]])))
+
+# replace with missing tag
+lapply(champ.factors, function(cf) {
+  col <- orange.valid[[cf]]
+  col <- addNA(col, ifany=T)
+  levels(col)[is.na(levels(col))] <- 'zzzMISSING'
+  orange.valid[, cf := col, with=F]
+})
+lapply(champ.factors, function(cf) {
+  col <- orange.test[[cf]]
+  col <- addNA(col, ifany=T)
+  levels(col)[is.na(levels(col))] <- 'zzzMISSING'
+  orange.test[, cf := col, with=F]
+})
+
+
+# are levels in our validation set not in our train set?  
+lapply(champ.factors, function(cf) {
+  levels(orange.valid[[cf]]) %in% levels(orange.train[[cf]])
+})
+lapply(champ.factors, function(cf) {
+  levels(orange.test[[cf]]) %in% levels(orange.train[[cf]])
+})
+
+lapply(champ.factors, function(cf) {
+  # for each level that is not in ouor orange.train, we collapse into 'zzzOTHER'
+  levels.not.in.train <- 
+    levels(orange.valid[[cf]])[!(levels(orange.valid[[cf]]) %in% 
+                                   levels(orange.train[[cf]]))]
+  for(l in levels.not.in.train) {
+    rows <- orange.valid[[cf]] == l
+    orange.valid[rows, cf := 'zzzOTHER', with=F]
+  }
+  orange.valid[,cf := droplevels(orange.valid[[cf]]), with=F]
+})
+
+lapply(champ.factors, function(cf) {
+  # for each level that is not in ouor orange.train, we collapse into 'zzzOTHER'
+  levels.not.in.train <- 
+    levels(orange.test[[cf]])[!(levels(orange.test[[cf]]) %in% 
+                                   levels(orange.train[[cf]]))]
+  for(l in levels.not.in.train) {
+    rows <- orange.test[[cf]] == l
+    orange.test[rows, cf := 'zzzOTHER', with=F]
+  }
+  orange.test[,cf := droplevels(orange.test[[cf]]), with=F]
+})
+
+# how about now?
+lapply(champ.factors, function(cf) {
+  levels(orange.valid[[cf]]) %in% levels(orange.train[[cf]])
+  levels(orange.test[[cf]]) %in% levels(orange.train[[cf]])
+})
+
+# good.  nothing more to prep with categorical features 
+
+prep.numeric.data <- function(data, means, numeric.cols) {
+  lapply(
+    names(data)[names(data) %in% numeric.cols],
+    function(col) {
+      na.rows <- is.na(data[[col]])
+      if(sum(na.rows) > 0) {
+        data[, col := replace(data[[col]], which(na.rows), means[col]), with=F]
+      }
+    })
+  data
+}
+
+numeric.champs <- names(champs)[input.feature.classes[names(champs)] != 'factor']
+champ.means <- numeric.input.feature.means[numeric.champs]
+
+orange.valid <- orange.valid[, names(champs), with=F]
+orange.valid <- prep.numeric.data(orange.valid, champ.means, numeric.champs)
+
+orange.test <- orange.test[, names(champs), with=F]
+orange.test <- prep.numeric.data(orange.test, champ.means, numeric.champs)
+
+########################################################################################
+# Validate
+
+low_prob <- 1e-6
+high_prob <- 1 - low_prob
+log_low_prob <- log(low_prob)
+log_high_prob <- log(high_prob)
+log_prob_thresholds <- seq(from=log_low_prob, to=log_high_prob, length.out=1000)
+prob_thresholds <- exp(log_prob_thresholds)
+
+champ.probs <- predict(champ.model, newdata = orange.valid, type="prob")
+champ.perf <- bin_classif_eval(
+  champ.probs$yes, upsell.valid, thresholds=prob_thresholds)
+
+
+plot(x=1 - champ.perf$specificity,
+     y=champ.perf$sensitivity,
+     type = "l", col='darkgreen', lwd=3,
+     xlim = c(0., 1.), ylim = c(0., 1.),
+     main = "ROC Curve (Validation Data)",
+     xlab = "1 - Specificity", ylab = "Sensitivity")
+abline(a=0,b=1,lty=2,col=8)
+
+# Not bad.  
+
+summary(champ.perf)
+# we can see that our min specificity is .3, so we don't have values on that area of the plot
+
+########################################################################################
+# Train on our train+valid set, then test.  
+
+orange.train.valid <- rbind(orange.train[, names(champs), with=F],
+                            orange.valid)
+upsell.train.valid <- upsell[train.indices]
+
+B <- 1000 #YOLO
+set.seed(99)
+print(system.time(
+  final.model <- train(
+    x=orange.train.valid,
+    y=upsell.train.valid,
+    method='parRF',     # parallel Random Forest
+    metric=caret_optimized_metric,
+    ntree=B,            # number of trees in the Random Forest
+    nodesize=100,       # minimum node size set small enough to allow for complex trees,
+    # but not so small as to require too large B to eliminate high variance
+    importance=FALSE,       #  Don't much care now.
+    keep.inbag=FALSE,   # not relevant as we're using Cross Validation
+    trControl=caret_train_control,
+    tuneGrid=NULL)
+))
+
+#  save(final.model, file="final.model.Rdata")
+
+
+
+final.probs <- predict(final.model, newdata = orange.test, type="prob")
+final.perf <- bin_classif_eval(
+  final.probs$yes, upsell.test, thresholds=prob_thresholds)
+
+plot(x=1 - final.perf$specificity,
+     y=final.perf$sensitivity,
+     type = "l", col='darkgreen', lwd=3,
+     xlim = c(0., 1.), ylim = c(0., 1.),
+     main = "ROC Curve (Test Data)",
+     xlab = "1 - Specificity", ylab = "Sensitivity")
+abline(a=0,b=1,lty=2,col=8)
+
+sensitivity.threshold <- .75
+
+final.perf <- bin_classif_eval(final.probs$yes, upsell.test, thresholds = sensitivity.threshold)
+final.perf
+
+stopCluster(cl)   # shut down the parallel computing cluster
