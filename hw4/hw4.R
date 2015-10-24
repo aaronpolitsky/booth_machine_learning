@@ -4,8 +4,6 @@ library(doParallel)
 library(dplyr)
 
 # load modules from the common HelpR repo
-# helpr_repo_raw_url <- 'https://raw.githubusercontent.com/ChicagoBoothML/HelpR/master'
-# source(file.path(helpr_repo_raw_url, 'EvaluationMetrics.R'))
 source('EvaluationMetrics.R')
 
 # set randomizer's seed
@@ -106,7 +104,8 @@ lapply(list(upsell.train, upsell.valid, upsell.test), function(x) sum(x=='yes')/
 # pretty balanced.  Well done, caret. 
 
 ##############################################################################
-#  Cleaning
+#  Cleaning:  very much in the spirit of the "get me outta here" code
+#    But in some cases, with hopefully a cleaner/faster approach. 
 ##############################################################################
 
 ## Getting Rid of Input Features $x$'s with Too Many Missing Values
@@ -127,6 +126,7 @@ input.feature.names <-
 
 num.input.features <- length(input.feature.names)
 
+# Throw out unused columns
 orange.train <- orange.train[ , input.feature.names, with=FALSE]
 
 # Which of these are numeric and which are categorical?
@@ -146,7 +146,6 @@ sd <-
   summarise_each(orange.train[,numeric.input.feature.names, with=F],
                  funs(sd(., na.rm=T)))
 
-orange.train <- copy(orig.orange.train)
 numeric.input.feature.means <-
   sapply(orange.train[ , numeric.input.feature.names, with=FALSE],
          function(col) mean(col, na.rm=TRUE))
@@ -155,19 +154,14 @@ asdf <- copy(orig.orange.train)
 mus <- sapply(asdf[, numeric.input.feature.names, with=F],
               function(col) mean(col, na.rm=T))
 system.time({
-#  asdf <- as.data.frame(orig.orange.train)
   lapply(numeric.input.feature.names, 
          function(col) {
            na.rows <- is.na(asdf[[col]])
            if(sum(na.rows) > 0) {
-            # mu <- mus[col]
-#             asdf[, col := as.numeric(asdf[[col]]), with=F]
-             #asdf[na.rows, col := mus[col], with=F]
              asdf[, col := replace(asdf[[col]], which(na.rows), mus[col]), with=F]
            }
          })
 })
-
 
 system.time({
   for (numeric.col in numeric.input.feature.names) {
@@ -583,48 +577,30 @@ summary(champ.perf)
 # we can see that our min specificity is .3, so we don't have values on that area of the plot
 
 ########################################################################################
-# Train on our train+valid set, then test.  
+#We trained on our train set, which includes our validation set, because
+#valid.indices were parts of our train set.  So we don't need to retrain on new data here. 
 
-orange.train.valid <- rbind(orange.train[, names(champs), with=F],
-                            orange.valid)
-upsell.train.valid <- upsell[train.indices]
-
-B <- 1000 #YOLO
-set.seed(99)
-print(system.time(
-  final.model <- train(
-    x=orange.train.valid,
-    y=upsell.train.valid,
-    method='parRF',     # parallel Random Forest
-    metric=caret_optimized_metric,
-    ntree=B,            # number of trees in the Random Forest
-    nodesize=100,       # minimum node size set small enough to allow for complex trees,
-    # but not so small as to require too large B to eliminate high variance
-    importance=FALSE,       #  Don't much care now.
-    keep.inbag=FALSE,   # not relevant as we're using Cross Validation
-    trControl=caret_train_control,
-    tuneGrid=NULL)
-))
-
-#  save(final.model, file="final.model.Rdata")
+champ.probs.oos <- predict(champ.model, newdata = orange.test, type="prob")
+champ.perf.oos <- bin_classif_eval(
+  champ.probs.oos$yes, upsell.test, thresholds=prob_thresholds)
 
 
-
-final.probs <- predict(final.model, newdata = orange.test, type="prob")
-final.perf <- bin_classif_eval(
-  final.probs$yes, upsell.test, thresholds=prob_thresholds)
-
-plot(x=1 - final.perf$specificity,
-     y=final.perf$sensitivity,
+plot(x=1 - champ.perf.oos$specificity,
+     y=champ.perf.oos$sensitivity,
      type = "l", col='darkgreen', lwd=3,
      xlim = c(0., 1.), ylim = c(0., 1.),
-     main = "ROC Curve (Test Data)",
+     main = "ROC Curves",
      xlab = "1 - Specificity", ylab = "Sensitivity")
 abline(a=0,b=1,lty=2,col=8)
+lines(x=1 - champ.perf$specificity,
+      y=champ.perf$sensitivity,
+      col='red', lwd=3)
+legend('right', c('Champ RF Model (OOS)', 'Champ RF (valid)'), 
+       lty=1, col=c('darkgreen', 'red'), lwd=3, cex=1.)
 
-sensitivity.threshold <- .75
+sensitivity.threshold <- .5
 
-final.perf <- bin_classif_eval(final.probs$yes, upsell.test, thresholds = sensitivity.threshold)
-final.perf
+champ.perf.oos <- bin_classif_eval(champ.probs.oos$yes, upsell.test, thresholds = sensitivity.threshold)
+champ.perf.oos
 
 stopCluster(cl)   # shut down the parallel computing cluster
