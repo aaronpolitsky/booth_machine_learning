@@ -72,7 +72,7 @@ remove(appetency)
 
 # Split into our train, validation, and test sets
 
-train.proportion <- .4
+train.proportion <- .8
 train.indices <- createDataPartition(
   y=upsell,
   p=train.proportion,
@@ -105,6 +105,10 @@ num.valid.samples <- length(upsell.valid)
 lapply(list(upsell.train, upsell.valid, upsell.test), function(x) sum(x=='yes')/length(x))
 # pretty balanced.  Well done, caret. 
 
+##############################################################################
+#  Cleaning
+##############################################################################
+
 ## Getting Rid of Input Features $x$'s with Too Many Missing Values
 
 # examine the proportions of missing values per input feature column:
@@ -113,6 +117,9 @@ input.features.missing.proportions <-
   sapply(orange.train, function(col) sum(is.na(col))) / num.train.samples
   
 hist(input.features.missing.proportions)
+
+# Based on this, we will remove the following features:
+input.feature.names[input.features.missing.proportions > .2]
 
 # Let's remove features which exceed 20% missing data.  
 input.feature.names <-
@@ -292,3 +299,163 @@ system.time({
 
 identical(orange.train, asdf)
 identical(my.cat.features, categorical.input.feature.names)
+
+
+
+########################################################################################
+# Choosing input variables
+input.feature.names <- c(numeric.input.feature.names, categorical.input.feature.names)
+
+orange.train <- orange.train[, input.feature.names, with=F]
+
+caret_optimized_metric <- 'logLoss'   # equivalent to 1 / 2 of Deviance
+
+caret_train_control <- trainControl(
+  classProbs=TRUE,             # compute class probabilities
+  summaryFunction=mnLogLoss,   # equivalent to 1 / 2 of Deviance
+  method='repeatedcv',         # repeated Cross Validation
+  number=5,                    # number of folds
+  repeats=1,                   # number of repeats
+  allowParallel=TRUE)
+
+
+# Pit the features against each other.  First compare in division, then do a bracket.  
+ 
+# Regular season:  Split into 4 divisions and grow forests  
+#  for each of these, store the variable importance.  
+
+# At the end of the round, rank the variables by importance, across all forests. 
+# Choose the top 32 and form a bracket.  
+
+
+# First, shuffle the order of features and set up divisions
+set.seed(99)
+competitors <- sample(input.feature.names)
+
+north <- (1:13)
+south <- (14:26)
+east <- (27:39)
+west <- (40:53)
+
+B <- 500
+
+importance <-data.frame() 
+
+# division play
+for(division in list(north, south, east, west)) {
+  print(system.time(
+    division.rf.model <- train(
+      x=orange.train[, competitors[division], with=FALSE],
+      y=upsell.train,
+      method='parRF',     # parallel Random Forest
+      metric=caret_optimized_metric,
+      ntree=B,            # number of trees in the Random Forest
+      nodesize=300,       # minimum node size set small enough to allow for complex trees,
+      # but not so small as to require too large B to eliminate high variance
+      importance=T,       #  evaluate importance of predictors
+      keep.inbag=FALSE,   # not relevant as we're using Cross Validation
+      trControl=caret_train_control,
+      tuneGrid=NULL)
+  ))
+  div.imp <- varImp(division.rf.model, scale = F)
+  importance <- rbind(importance, div.imp$importance[2])
+}
+
+plot(importance[order(importance, decreasing = T),])
+
+# the top 32 teams make the playoffs bracket. 
+playoff.teams <- rownames(importance)[order(importance$yes, decreasing=T)][1:32]
+
+
+# Round 1:  
+
+group.a <- playoff.teams[c(seq(1,16,4),seq(32,17,-4))]
+group.b <- playoff.teams[c(seq(2,16,4),seq(31,17,-4))]
+group.c <- playoff.teams[c(seq(3,16,4),seq(30,17,-4))]
+group.d <- playoff.teams[c(seq(4,16,4),seq(29,17,-4))]
+
+B <- 300
+set.seed(99)
+round.1.importance <- data.frame()
+for(g in list(group.a, group.b, group.c, group.d)) {
+  print(system.time(
+    g.rf.model <- train(
+      x=orange.train[, g, with=FALSE],
+      y=upsell.train,
+      method='parRF',     # parallel Random Forest
+      metric=caret_optimized_metric,
+      ntree=B,            # number of trees in the Random Forest
+      nodesize=800,       # minimum node size set small enough to allow for complex trees,
+      # but not so small as to require too large B to eliminate high variance
+      importance=T,       #  evaluate importance of predictors
+      keep.inbag=FALSE,   # not relevant as we're using Cross Validation
+      trControl=caret_train_control,
+      tuneGrid=NULL)
+  ))
+  imp <- varImp(g.rf.model, scale = F)
+  round.1.importance <- rbind(round.1.importance, imp$importance[2])
+}
+
+plot(round.1.importance[order(round.1.importance, decreasing = T),])
+
+round.2.teams <- 
+  rownames(round.1.importance)[order(round.1.importance$yes, decreasing=T)][1:16]
+
+
+# Round 2
+alcs <- round.2.teams[c(1,3,5,7,16,14,12,10)]
+nlcs <- round.2.teams[c(2,4,6,8,15,13,11,9)]
+
+B <- 300
+set.seed(99)
+round.2.importance <- data.frame()
+for(teams in list(alcs,nlcs)) {
+  print(system.time(
+    g.rf.model <- train(
+      x=orange.train[, teams, with=FALSE],
+      y=upsell.train,
+      method='parRF',     # parallel Random Forest
+      metric=caret_optimized_metric,
+      ntree=B,            # number of trees in the Random Forest
+      nodesize=800,       # minimum node size set small enough to allow for complex trees,
+      # but not so small as to require too large B to eliminate high variance
+      importance=T,       #  evaluate importance of predictors
+      keep.inbag=FALSE,   # not relevant as we're using Cross Validation
+      trControl=caret_train_control,
+      tuneGrid=NULL)
+  ))
+  imp <- varImp(g.rf.model, scale = F)
+  round.2.importance <- rbind(round.2.importance, imp$importance[2])
+}
+
+finalists <- 
+  round.2.importance[order(round.2.importance, decreasing = T),]
+names(finalists) <- 
+  rownames(round.2.importance)[order(round.2.importance$yes, decreasing=T)]
+
+plot(finalists)
+
+# lets choose the ones that have positive importance.
+champs <- finalists[finalists >= 0]
+
+
+##################
+# Fit our championship model
+B <- 1000 #YOLO
+set.seed(99)
+print(system.time(
+  champ.model <- train(
+    x=orange.train[, names(champs), with=FALSE],
+    y=upsell.train,
+    method='parRF',     # parallel Random Forest
+    metric=caret_optimized_metric,
+    ntree=B,            # number of trees in the Random Forest
+    nodesize=800,       # minimum node size set small enough to allow for complex trees,
+    # but not so small as to require too large B to eliminate high variance
+    importance=FALSE,       #  Don't much care now.
+    keep.inbag=FALSE,   # not relevant as we're using Cross Validation
+    trControl=caret_train_control,
+    tuneGrid=NULL)
+))
+
+
