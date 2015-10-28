@@ -5,18 +5,48 @@ date: "October 30, 2015"
 output: pdf_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+1.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Let's source our dependencies and load our libraries.
+```{r, message=F}
+library(caret)
+library(data.table)
+library(doParallel)
+library(plyr)
+source("EvaluationMetrics.R")
+```
+
+And set up parallelization:
+```{r, message=F}
+cl <- makeCluster(detectCores())   # I don't mind using all of my cores
+clusterEvalQ(cl, library(foreach))
+registerDoParallel(cl)   # register this cluster
+```
+
+Now, import our Accident data:
+```{r}
+data_folder_path <- 'data'
+
+accidents <- as.data.table(read.table(
+  file.path("data", 'Accidents.csv'),
+  header=TRUE, sep=',', stringsAsFactors=T))
+
+
+```
+
+
+#1.1 Choosing a Variable to Predict
+MAX_SEV_IR indicates the maximum severity of the accident, and has three levels:
+
+- 0: no injury
+- 1: non-fatal injury
+- 2: fatal injury
+
+Let's assume we are interested in predicting if there is a severe injury that requires medical attention.  One might argue that responders cannot help a dead-on-arrival person, and that fatal injury status should be disregarded.  But since MAX_SEV_IR indicates the maximum severity of the accident, it is possible that even if there is a fatality, we do not know if there are non-fatal, serious injuries that require care.  (Assume that even with a MAX_SEV_IR:2 accident in which we know there was only one person involved, we are still better safe than sorry and should respond as if all is not lost.)  So, let's create another variable called severe.injury which is FALSE if MAX_SEV_IR indicates no injury and TRUE if otherwise.  
 
 ```{r}
-summary(cars)
+accidents$severe.injury <-accidents$MAX_SEV_IR != 0
+
+table(accidents$severe.injury, accidents$MAX_SEV_IR, ddnn = )
 ```
 
-You can also embed plots, for example:
-
-```{r, echo=FALSE}
-plot(cars)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
