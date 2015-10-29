@@ -48,9 +48,13 @@ MAX_SEV_IR indicates the maximum severity of the accident, and has three levels:
 Let's assume we are interested in predicting if there is a severe injury that requires medical attention.  One might argue that responders cannot help a dead-on-arrival person, and that fatal injury status should be disregarded.  But since MAX_SEV_IR indicates the maximum severity of the accident, it is possible that even if there is a fatality, we do not know if there are non-fatal, serious injuries that require care.  (Assume that even with a MAX_SEV_IR:2 accident in which we know there was only one person involved, we are still better safe than sorry and should respond as if all is not lost.)  So, let's create another variable called severe.injury which is "no" if MAX_SEV_IR indicates no injury and "yes" if otherwise.  
 
 ```{r}
-accidents$severe.injury <- accidents$MAX_SEV_IR != 0
+accidents$severe.injury <- accidents$MAX_SEV_IR != 0 
 accidents[, severe.injury := factor(severe.injury,
-                                    levels=c(TRUE,FALSE), labels=c("Yes", "No"))]
+                                    levels=c(FALSE, TRUE), labels=c("No", "Yes"))]
+
+# and because we may need to do the same with alcohol
+accidents[, ALCHL_I := factor(ALCHL_I,
+                                    levels=c(2,1), labels=c("NoAlcohol", "Alcohol"))]
 
 table(accidents$severe.injury, accidents$MAX_SEV_IR)
 
@@ -111,12 +115,6 @@ predictor.names <-
 ) 
 ```
 
-
-Before we go any further, let's rename some confusingly-named variables:
-```{r}
-names(accidents)[names(accidents)=='INJURY_CRASH'] = 'injury.not.fatality'
-```
-
 Lets convert to factors:
 ```{r}
 for(colname in names(accidents)) {
@@ -126,19 +124,17 @@ for(colname in names(accidents)) {
 
 Just to sanity-check, the classes of the variables are:
 
-```{r}
+```{r, name="hi"}
 sapply(accidents, class)
 
 ```
 
 ```{r}
 num.samples <- nrow(accidents)
-
 ```
 
-Out of the **`r formatC(num.samples, format='d', big.mark=',')`** samples, the incidence of a severe injury accident is **`r formatC(100 * sum(accidents$severe.injury == 'Yes') / num.samples, format='f', digits=2, big.mark=',')`%**. Note that this creates a "**skewed classes**" problem: one of the classes of cases (here the "responsive" class) is significantly rarer than the other.
+Out of the **`r formatC(num.samples, format='d', big.mark=',')`** samples, the incidence of a severe injury accident is **`r formatC(100 * sum(accidents$severe.injury == 'Yes') / num.samples, format='f', digits=2, big.mark=',')`%**. 
 
-_(**note**: in more extreme cases where one class is much, much rarer than the other to the order of 1000 or 10,000 times, our model fitting procedures would need to be tweaked; but this case is not so extreme)_
 
 We don't have a missing data problem with this data set:
 
@@ -157,9 +153,40 @@ valid_indices <- createDataPartition(
 
 accidents.valid <- accidents[valid_indices, ]
 accidents <- accidents[-valid_indices, ]
+
 ```
 
-Just to sanity-check that the data sets have been split representatively by **`caret`**: the responsive incidences in the Training and Validation sets are **`r formatC(100 * sum(accidents$severe.injury == 'responsive') / nrow(accidents), format='f', digits=2, big.mark=',')`** and **`r formatC(100 * sum(accidents.valid$severe.injury == 'responsive') / nrow(accidents.valid), format='f', digits=2, big.mark=',')`**, respectively.
+Just to sanity-check that the data sets have been split representatively by **`caret`**: the Yes incidences in the Training and Validation sets are **`r formatC(100 * sum(accidents$severe.injury == 'Yes') / nrow(accidents), format='f', digits=2, big.mark=',')`** and **`r formatC(100 * sum(accidents.valid$severe.injury == 'Yes') / nrow(accidents.valid), format='f', digits=2, big.mark=',')`**, respectively.
+
+What about level-counts?
+```{r}
+lapply(predictor.names, function(colname) {
+  table(accidents[[colname]])
+})
+
+```
+Our training data has no 10-vehicle crashes and few observations with greater than 6 cars.  Let's collapse all levels above 6 into "GreaterThan6" for crashes with vehicles greater than 6. 
+
+```{r}
+accidents[VEH_INVL %in% levels(accidents$VEH_INVL)[as.integer(levels(accidents$VEH_INVL) ) > 6],
+          "VEH_INVL" := "GreaterThan6"]
+accidents <- droplevels(accidents)
+
+accidents.valid[VEH_INVL %in% levels(accidents.valid$VEH_INVL)[as.integer(levels(accidents.valid$VEH_INVL)) > 6],
+                "VEH_INVL" := "GreaterThan6"]
+accidents.valid <- droplevels(accidents.valid)
+
+# check
+
+lapply(predictor.names, function(colname) {
+  table(accidents[[colname]])
+})
+
+lapply(predictor.names, function(colname) {
+  table(accidents.valid[[colname]])
+})
+
+```
 
 
 # Classification Models
@@ -174,12 +201,16 @@ caret_train_control <- trainControl(
   summaryFunction=mnLogLoss,   # equivalent to 1 / 2 of Deviance
   method='repeatedcv',         # repeated Cross Validation
   number=5,                    # 5 folds
-  repeats=6,                   # 3 repeats
+  repeats=1,                   # 1 repeats
   allowParallel=TRUE)
 ```
 
-```{r message=FALSE, warning=FALSE}
-B <- 40#1200
+```{r, echo=FALSE}
+load("models.1.2.Rda")
+```
+
+```{r, eval=FALSE}
+B <- 500
 
 system.time(
   rf_model <- train(
@@ -188,20 +219,18 @@ system.time(
     method='parRF',     # parallel Random Forest
     metric=caret_optimized_metric,
     ntree=B,            # number of trees in the Random Forest
-    #nodesize=30,        # minimum node size set small enough to allow for complex trees,
-    nodesize=200,        # minimum node size set small enough to allow for complex trees,
-   # but not so small as to require too large B to eliminate high variance
+    nodesize=30,        # minimum node size set small enough to allow for complex trees,
+    # but not so small as to require too large B to eliminate high variance
     importance=TRUE,    # evaluate importance of predictors
-    keep.inbag=TRUE,
+    keep.inbag=FALSE,
     trControl=caret_train_control,
     tuneGrid=NULL)
 )
 
 ```
 
-```{r}
-#B <- 2400
-B <- 40
+```{r, eval=FALSE}
+B <- 1000
 
 system.time(
   boost_model <- train(
@@ -209,30 +238,22 @@ system.time(
     y=accidents$severe.injury,
     method='gbm',       # Generalized Boosted Models
     metric=caret_optimized_metric,
-    verbose=FALSE,
+    verbose=T,
     trControl=caret_train_control,
     tuneGrid=expand.grid(
       n.trees=B,              # number of trees
-      interaction.depth=10,   # max tree depth,
+      interaction.depth=5,   # max tree depth,
       n.minobsinnode=100,     # minimum node size
       shrinkage=0.01))        # shrinkage parameter, a.k.a. "learning rate"
 )
 ```
 
-```{r}
-system.time(
-  log_reg_model <- train(
-    x=accidents[, predictor.names[3:5], with=FALSE],
-    y=accidents$severe.injury,
-    preProcess=c('center', 'scale'), 
-    method='plr',    # Penalized Logistic Regression
-    metric=caret_optimized_metric,
-    trControl=caret_train_control,
-    tuneGrid=expand.grid(
-      lambda=0,      # weight penalty parameter
-      cp='aic'
-    )
-  )
+```{r, eval=FALSE}
+
+log_reg_model <- 
+  glm(severe.injury ~ ., 
+      data=data.frame(accidents[, c("VEH_INVL", "severe.injury"), with=F]), 
+      family = binomial()
 )
 ```
 
@@ -240,6 +261,11 @@ system.time(
 We'll now evaluate the OOS performances of these 3 models on the Validation set to select a model we think is best:
 
 ```{r}
+# Check for missing Validation levels:
+sapply(predictor.names, function(colname) {
+  all(levels(accidents.valid[[colname]]) %in% levels(accidents[[colname]]))
+  })
+
 low_prob <- 1e-6
 high_prob <- 1 - low_prob
 log_low_prob <- log(low_prob)
@@ -250,17 +276,19 @@ prob_thresholds <- exp(log_prob_thresholds)
 rf_pred_probs <- predict(
   rf_model, newdata=accidents.valid[ , predictor.names, with=FALSE], type='prob')
 rf_oos_performance <- bin_classif_eval(
-  rf_pred_probs$responsive, accidents.valid$severe.injury, thresholds=prob_thresholds)
+  rf_pred_probs$Yes, accidents.valid$severe.injury, thresholds=prob_thresholds)
 
 boost_pred_probs <- predict(
   boost_model, newdata=accidents.valid[ , predictor.names, with=FALSE], type='prob')
 boost_oos_performance <- bin_classif_eval(
-  boost_pred_probs$responsive, accidents.valid$severe.injury, thresholds=prob_thresholds)
+  boost_pred_probs$Yes, accidents.valid$severe.injury, thresholds=prob_thresholds)
 
 log_reg_pred_probs <- predict(
-  log_reg_model, newdata=accidents.valid[, predictor.names, with=FALSE], type='prob')
+  log_reg_model, 
+  newdata=data.frame(accidents.valid[, c(predictor.names, "severe.injury"), with=FALSE]), type='response')
+
 log_reg_oos_performance <- bin_classif_eval(
-  log_reg_pred_probs$responsive, accidents.valid$severe.injury, thresholds=prob_thresholds)
+  log_reg_pred_probs, accidents.valid$severe.injury, thresholds=prob_thresholds)
 
 
 plot(x=1 - rf_oos_performance$specificity,
@@ -279,3 +307,22 @@ lines(x=1 - log_reg_oos_performance$specificity,
 legend('right', c('Random Forest', 'Boosted Trees', 'Logistic Regression'), 
    lty=1, col=c('darkgreen', 'green', 'red'), lwd=3, cex=1.)
 ```
+
+Boosting and RandomForest look great, but Logistic didn't do so well.  
+
+## 1.3:  Measuring the effect of alcohol on the severity of the accident.  
+
+### Simple Logit
+We could estimate a logit model regressing severity on alcohol, controlling for all other predictors so as to isolate the ceteris-paribus effect.  The coefficient on the alcohol involvement dummy will represent an estimate of the difference in probability that the accident is severe given alcohol involvement.  
+
+```{r}
+logit.alcohol.effect.model <- glm(severe.injury ~ . , data=accidents[,c(predictor.names, "ALCHL_I", "severe.injury"), with=F], family=binomial())
+
+logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"]
+
+```
+
+Alcohol involvement increases the probability of a severe injury accident by `r format(logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"],digits=3)*100`%, controlling for our other predictors.  
+
+Having taken a quarter of Program Evaluation at Harris, I feel the need to mention that if we really wanted to measure the effect of alcohol involvement on severity of injuries, we should consider a potential outcomes framework.  I would probably use a propensity score matching technique, probably using inverse p-score weighting for the alcohol and non-alcohol group, then calculate the difference in their severity means.  One problem with p scores is that you have to get the functional forms right if you're using a regression, but now we have tree methods, which can sort out those nasty, nonlinear functional forms and get a great p-score prediction.  Exciting, but I'm moving on to number 2. 
+
