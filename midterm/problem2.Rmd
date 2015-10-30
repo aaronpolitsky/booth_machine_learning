@@ -1,0 +1,64 @@
+#2 Tabloid, Revisited
+
+#2.1
+
+```{r, message=FALSE}
+library(caret)
+library(data.table)
+library(doParallel)
+library(plyr)
+source("EvaluationMetrics.R")
+```
+
+```{r}
+# download data and read data into data.table format
+y_var_name <- 'purchase'
+y_classes <- c('not_responsive', 'responsive')
+
+X_var_names <- c(
+  'nTab',
+  'moCbook',
+  'iRecMer1',
+  'llDol',
+  'propSpec',
+  'recW4',
+  'moShoe',
+  'nWoApp',
+  'nMen'
+  )
+column_classes <- c(
+  purchase='integer',
+  nTab='numeric',
+  moCbook='numeric',
+  iRecMer1='numeric',
+  llDol='numeric',
+  propSpec='numeric',
+  recW4='numeric',
+  moShoe='numeric',
+  nWoApp='numeric',
+  nMen='numeric'
+  )
+
+
+data_repo_raw_path <- 'data'
+tabloid <- fread(
+  file.path(data_repo_raw_path, 'tabdat9n20.csv'),
+  colClasses=column_classes)
+tabloid[ , purchase := factor(purchase,
+                              levels=c(0, 1), labels=y_classes)]
+
+num.samples <- nrow(tabloid)
+
+tabloid
+```
+
+## Tidying
+
+```{r}
+sapply(tabloid, function(col) sum(is.na(col)))
+```
+No missing data.  
+
+Out of the **`r formatC(num.samples, format='d', big.mark=',')`** samples, the incidence of marketing-responsive purchase is **`r formatC(100 * sum(tabloid$purchase == 'responsive') / num.samples, format='f', digits=2, big.mark=',')`%**. Note that this creates a "**skewed classes**" problem: one of the classes of cases (here the "responsive" class) is significantly rarer than the other.
+
+_(**note**: in more extreme cases where one class is much, much rarer than the other to the order of 1000 or 10,000 times, our model fitting procedures would need to be tweaked; but this case is not so extreme)_

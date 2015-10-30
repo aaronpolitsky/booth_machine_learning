@@ -1,0 +1,326 @@
+#1
+
+Let's source our dependencies and load our libraries.
+```{r, message=FALSE}
+library(caret)
+library(data.table)
+library(doParallel)
+library(plyr)
+source("EvaluationMetrics.R")
+```
+
+And set up parallelization:
+```{r, results='hide'}
+cl <- makeCluster(detectCores())   # I don't mind using all of my cores
+clusterEvalQ(cl, library(foreach))
+registerDoParallel(cl)   # register this cluster
+```
+
+Now, import our Accident data:
+```{r}
+
+set.seed(99) # Gretzky.  Why not?
+
+data_folder_path <- 'data'
+
+accidents <- as.data.table(read.table(
+  file.path("data", 'Accidents.csv'),
+  header=TRUE, sep=',', stringsAsFactors=T))
+
+
+```
+
+
+##1.1 Choosing a Variable to Predict
+MAX_SEV_IR indicates the maximum severity of the accident, and has three levels:
+
+- 0: no injury
+- 1: non-fatal injury
+- 2: fatal injury
+
+Let's assume we are interested in predicting if there is a severe injury that requires medical attention.  One might argue that responders cannot help a dead-on-arrival person, and that fatal injury status should be disregarded.  But since MAX_SEV_IR indicates the maximum severity of the accident, it is possible that even if there is a fatality, we do not know if there are non-fatal, serious injuries that require care.  (Assume that even with a MAX_SEV_IR:2 accident in which we know there was only one person involved, we are still better safe than sorry and should respond as if all is not lost.)  So, let's create another variable called severe.injury which is "no" if MAX_SEV_IR indicates no injury and "yes" if otherwise.  
+
+```{r}
+accidents$severe.injury <- accidents$MAX_SEV_IR != 0 
+accidents[, severe.injury := factor(severe.injury,
+                                    levels=c(FALSE, TRUE), labels=c("No", "Yes"))]
+
+# and because we may need to do the same with alcohol
+accidents[, ALCHL_I := factor(ALCHL_I,
+                                    levels=c(2,1), labels=c("NoAlcohol", "Alcohol"))]
+
+table(accidents$severe.injury, accidents$MAX_SEV_IR)
+
+```
+
+
+##1.2 Developing a predictive model
+
+### Choosing input variables
+At the time we decide to respond to the accident, it is likely that we know the following:
+
+- HOUR_I_R:  rush hour or not
+- INT_HWY	Interstate?
+- MAN_COL_I	 collision, head on, or other?
+- PED_ACC_R	 pedestrian/cyclist involved?
+- REL_JCT_I_R	accident at intersection/interchange or not?
+- REL_RWY_R	 accident on roadway or not?
+- LGTCON_I_R	Lighting conditions {day, dark, lighted, etc.}
+- SPD_LIM	Speed limit, miles per hour 
+- TRAF_CON_R	presence and type of Traffic control device
+- TRAF_WAY	two-way traffic, divided hwy, one-way road
+- VEH_INVL	Number of vehicles involved
+- WEATHER_R	adverse weather presence/type
+
+We may know the following: 
+
+- WRK_ZONE	construction zone
+- NO_INJ_I	Number of injuries (may be unclear at time of reporting)
+- INJURY_CRASH	1=yes, 0= no (we may not be sure at time of reporting, and this data is ex post)
+- PRPTYDMG_CRASH	1=property damage, 2=no property damage (only truly known ex post)
+- FATALITIES	1= yes, 0= no 
+
+We likely do not know the following, or only know it for certain ex post: 
+
+- ALCOHOL_I	Alcohol involved = 1, not involved = 2
+- ALIGN_I	1 = straight, 2 = curve
+- STRATUM_R	1= NASS Crashes Involving At Least One Passenger Vehicle, i.e., A Passenger Car, Sport Utility Vehicle, Pickup Truck Or Van) Towed Due To Damage From The Crash Scene And No Medium Or Heavy Trucks Are Involved.
+	0=not
+- PROFIL_I_R	1= level, 0=other
+- SUR_CON	Surface conditions (1=dry, 2=wet, 3=snow/slush, 4=ice, 5=sand/dirt/oil, 8=other, 9=unknown).  Some of these categories are hyper-local (e.g. sand/dirt/oil)
+- MAX_SEV_IR	which we profess to not know by construction of this problem.  
+
+Let's choose the definitely known ones: 
+```{r}
+predictor.names <- 
+  c("HOUR_I_R",
+    "INT_HWY",
+    "MANCOL_I_R",
+    "PED_ACC_R",
+    "RELJCT_I_R",
+    "REL_RWY_R",
+    "LGTCON_I_R",
+    "SPD_LIM",
+    "TRAF_CON_R",
+    "TRAF_WAY",
+    "VEH_INVL",
+    "WEATHER_R"
+) 
+```
+
+Lets convert to factors:
+```{r}
+for(colname in names(accidents)) {
+  accidents[[colname]] <- as.factor(accidents[[colname]])
+}
+```
+
+Just to sanity-check, the classes of the variables are:
+
+```{r, name="hi"}
+sapply(accidents, class)
+
+```
+
+```{r}
+num.samples <- nrow(accidents)
+```
+
+Out of the **`r formatC(num.samples, format='d', big.mark=',')`** samples, the incidence of a severe injury accident is **`r formatC(100 * sum(accidents$severe.injury == 'Yes') / num.samples, format='f', digits=2, big.mark=',')`%**. 
+
+
+We don't have a missing data problem with this data set:
+
+```{r}
+sapply(accidents, function(col) sum(is.na(col)))
+```
+
+Let's split a Validation set out from the Training data, for use in estimating OOS performance:
+
+```{r}
+valid_proportion <- 1 / 3
+valid_indices <- createDataPartition(
+  y=accidents$severe.injury,
+  p=valid_proportion,
+  list=FALSE)
+
+accidents.valid <- accidents[valid_indices, ]
+accidents <- accidents[-valid_indices, ]
+
+```
+
+Just to sanity-check that the data sets have been split representatively by **`caret`**: the Yes incidences in the Training and Validation sets are **`r formatC(100 * sum(accidents$severe.injury == 'Yes') / nrow(accidents), format='f', digits=2, big.mark=',')`** and **`r formatC(100 * sum(accidents.valid$severe.injury == 'Yes') / nrow(accidents.valid), format='f', digits=2, big.mark=',')`**, respectively.
+
+What about level-counts?
+```{r}
+sapply(predictor.names, function(colname) {
+  table(accidents[[colname]])
+})
+
+```
+Our training data has no 10-vehicle crashes and few observations with greater than 6 cars.  Let's collapse all levels above 6 into "GreaterThan6" for crashes with vehicles greater than 6. 
+
+```{r}
+accidents[VEH_INVL %in% 
+            levels(accidents$VEH_INVL)[as.integer(levels(accidents$VEH_INVL) ) > 6],
+          "VEH_INVL" := "GreaterThan6"]
+accidents <- droplevels(accidents)
+
+accidents.valid[
+  VEH_INVL %in% 
+    levels(accidents.valid$VEH_INVL)[as.integer(levels(accidents.valid$VEH_INVL)) > 6],
+  "VEH_INVL" := "GreaterThan6"]
+accidents.valid <- droplevels(accidents.valid)
+
+# check
+
+sapply(predictor.names, function(colname) {
+  any(table(accidents[[colname]])==0)
+})
+
+sapply(predictor.names, function(colname) {
+  any(table(accidents.valid[[colname]])==0)
+})
+
+```
+
+
+## Classification Models
+
+Let's train 3 types of classification models: a Random Forest, a Boosted Trees model and a Logistic Regression.
+
+```{r}
+caret_optimized_metric <- 'logLoss'   # equivalent to 1 / 2 of Deviance
+
+caret_train_control <- trainControl(
+  classProbs=TRUE,             # compute class probabilities
+  summaryFunction=mnLogLoss,   # equivalent to 1 / 2 of Deviance
+  method='repeatedcv',         # repeated Cross Validation
+  number=5,                    # 5 folds
+  repeats=2,                   # repeats
+  allowParallel=TRUE)
+```
+
+```{r, echo=FALSE}
+load("models.1.2.Rda")
+```
+
+```{r, eval=FALSE}
+B <- 500
+
+system.time(
+  rf_model <- train(
+    x=accidents[, predictor.names, with=FALSE],
+    y=accidents$severe.injury,
+    method='parRF',     # parallel Random Forest
+    metric=caret_optimized_metric,
+    ntree=B,            # number of trees in the Random Forest
+    nodesize=30,        # minimum node size set small enough to allow for complex trees,
+    # but not so small as to require too large B to eliminate high variance
+    importance=TRUE,    # evaluate importance of predictors
+    keep.inbag=FALSE,
+    trControl=caret_train_control,
+    tuneGrid=NULL)
+)
+
+```
+
+```{r, eval=FALSE}
+B <- 1000
+
+system.time(
+  boost_model <- train(
+    x=accidents[, predictor.names, with=FALSE],
+    y=accidents$severe.injury,
+    method='gbm',       # Generalized Boosted Models
+    metric=caret_optimized_metric,
+    verbose=T,
+    trControl=caret_train_control,
+    tuneGrid=expand.grid(
+      n.trees=B,              # number of trees
+      interaction.depth=5,   # max tree depth,
+      n.minobsinnode=100,     # minimum node size
+      shrinkage=0.01))        # shrinkage parameter, a.k.a. "learning rate"
+)
+```
+
+```{r, eval=FALSE}
+
+log_reg_model <- 
+  glm(severe.injury ~ ., 
+      data=data.frame(accidents[, c(predictor.names, "severe.injury"), with=F]), 
+      family = binomial()
+)
+```
+
+## Justification Based on Out of Sample Performance
+We'll now evaluate the OOS performances of these 3 models on the Validation set to select a model we think is best:
+
+```{r, message=FALSE, tidy=TRUE}
+# Check for missing Validation levels:
+sapply(predictor.names, function(colname) {
+  all(levels(accidents.valid[[colname]]) %in% levels(accidents[[colname]]))
+  })
+
+low_prob <- 1e-6
+high_prob <- 1 - low_prob
+log_low_prob <- log(low_prob)
+log_high_prob <- log(high_prob)
+log_prob_thresholds <- seq(from=log_low_prob, to=log_high_prob, length.out=100)
+prob_thresholds <- exp(log_prob_thresholds)
+
+rf_pred_probs <- predict(
+  rf_model, newdata=accidents.valid[ , predictor.names, with=FALSE], type='prob')
+rf_oos_performance <- bin_classif_eval(
+  rf_pred_probs$Yes, accidents.valid$severe.injury, thresholds=prob_thresholds)
+
+boost_pred_probs <- predict(
+  boost_model, newdata=accidents.valid[ , predictor.names, with=FALSE], type='prob')
+boost_oos_performance <- bin_classif_eval(
+  boost_pred_probs$Yes, accidents.valid$severe.injury, thresholds=prob_thresholds)
+
+log_reg_pred_probs <- predict(
+  log_reg_model, 
+  newdata=data.frame(accidents.valid[, c(predictor.names, "severe.injury"), with=FALSE]), type='response')
+
+log_reg_oos_performance <- bin_classif_eval(
+  log_reg_pred_probs, accidents.valid$severe.injury, thresholds=prob_thresholds)
+```
+
+```{r}
+plot(x=1 - rf_oos_performance$specificity,
+     y=rf_oos_performance$sensitivity,
+     type = "l", col='darkgreen', lwd=3,
+     xlim = c(0., 1.), ylim = c(0., 1.),
+     main = "ROC Curves (Validation Data)",
+     xlab = "1 - Specificity", ylab = "Sensitivity")
+abline(a=0,b=1,lty=2,col=8)
+lines(x=1 - boost_oos_performance$specificity,
+      y=boost_oos_performance$sensitivity,
+      col='green', lwd=3)
+lines(x=1 - log_reg_oos_performance$specificity,
+      y=log_reg_oos_performance$sensitivity,
+      col='red', lwd=3)
+legend('right', c('Random Forest', 'Boosted Trees', 'Logistic Regression'), 
+   lty=1, col=c('darkgreen', 'green', 'red'), lwd=3, cex=1.)
+```
+
+Boosting and RandomForest look great, but Logistic didn't do so well.  
+
+## 1.3:  Measuring the effect of alcohol on the severity of the accident.  
+
+### Simple Logit
+We could estimate a logit model regressing severity on alcohol, controlling for all other predictors so as to isolate the ceteris-paribus effect.  The coefficient on the alcohol involvement dummy will represent an estimate of the difference in log of probability that the accident is severe given alcohol involvement.  
+
+(Here, using a no-intercept model, because we haven't defined the base category for any of our other predictors.)
+```{r, tidy=TRUE}
+logit.alcohol.effect.model <- glm(severe.injury ~ . -1, data=accidents[,c(predictor.names, "ALCHL_I", "severe.injury"), with=F], family=binomial())
+
+exp(logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"])
+```
+
+Alcohol involvement increases the probability of a severe injury accident by **`r formatC(100 * (exp(logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"])-1), format='f', digits=2, big.mark=',')`%**, controlling for our other predictors.  
+
+(Note: Having taken a quarter of Program Evaluation at Harris, I feel the need to mention that if we really wanted to measure the effect of alcohol involvement on severity of injuries, we should consider a potential outcomes framework.  I would probably use a propensity score matching technique: weighing the non-alcohol group by p/(1-p), then calculate the difference in their severity means.  One problem with propensity scores is that you have to get the functional forms right if you're using a regression, but now we have tree methods, which can sort out those nasty, nonlinear functional forms and get a great p-score prediction.  Exciting, but I'm moving on to number 2.)
+
+
