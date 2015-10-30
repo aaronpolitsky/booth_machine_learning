@@ -3,7 +3,7 @@ output: pdf_document
 ---
 #2 Tabloid, Revisited
 
-#2.1
+Let's get ready to fit our models. 
 
 ```{r, message=FALSE}
 library(caret)
@@ -56,8 +56,6 @@ tabloid[ , purchase := factor(purchase,
                               levels=c(0, 1), labels=y_classes)]
 
 num.samples <- nrow(tabloid)
-
-tabloid
 ```
 
 ## Tidying
@@ -71,7 +69,7 @@ Out of the **`r formatC(num.samples, format='d', big.mark=',')`** samples, the i
 
 ##2.1
 
-Since our data is likely in good shape, but we almost certainly don't have an idea of functional form, I bet tree methods would work well.  And, since question 2.2 asks about importance, we can use random forests and boosting to assess variable importance.  I suppose a lasso might also tell us which variables are important, too.
+Since our data is likely in good shape, but we almost certainly don't have an idea of functional form, I bet tree methods would work well.  And, since question 2.2 asks about importance, we can use random forests and boosting, and good old logit to assess variable importance.  Let's also fit a lasso, while we're at it.  
 
 First, split up our train and validation data:
 ```{r}
@@ -91,7 +89,7 @@ Just to sanity-check that the data sets have been split representatively by **`c
 
 ## Fitting our Models
 
-Let's train 3 types of classification models: a Random Forest, a Boosted Trees model and a Lasso.
+Let's train 3 types of classification models: a Random Forest, a Boosted Trees model, our all-X logistic regression, and a Lasso.
 
 ```{r}
 caret_optimized_metric <- 'logLoss'   # equivalent to 1 / 2 of Deviance
@@ -101,13 +99,12 @@ caret_train_control <- trainControl(
   summaryFunction=mnLogLoss,   # equivalent to 1 / 2 of Deviance
   method='repeatedcv',         # repeated Cross Validation
   number=5,                    # 5 folds
-  #repeats=2,                   # repeats
-  repeats=1,                   # repeats
+  repeats=3,                   # repeats
   allowParallel=TRUE)
 ```
 
-```{r}
-B <- 400
+```{r, eval=FALSE}
+B <- 500
 
 rf_model <- train(
   x=tabloid_train[, X_var_names, with=FALSE],
@@ -124,9 +121,10 @@ rf_model <- train(
   tuneGrid=NULL)
 ```
 
-```{r}
+```{r, eval=FALSE}
 B <- 1000
 
+system.time(
 boost_model <- train(
   x=tabloid_train[, X_var_names, with=FALSE],
   y=tabloid_train$purchase,
@@ -136,9 +134,10 @@ boost_model <- train(
   trControl=caret_train_control,
   tuneGrid=expand.grid(
     n.trees=B,              # number of trees
-    interaction.depth=4,    # max tree depth,
+    interaction.depth=c(4,10),    # max tree depth,
     n.minobsinnode=100,     # minimum node size
-    shrinkage=0.01))        # shrinkage parameter, a.k.a. "learning rate"
+    shrinkage=c(0.2,0.01)))        # shrinkage parameter, a.k.a. "learning rate"
+)
 ```
 
 ```{r}
@@ -147,16 +146,15 @@ library(glmnet)
 x.train <- as.matrix(tabloid_train[,-("purchase"), with=F])
 x.valid <- as.matrix(tabloid_valid[,-("purchase"), with=F])
 y.train <- tabloid_train$purchase
-
+```
+```{r, eval=FALSE}
 lasso_model <- cv.glmnet(x.train, y.train, nfolds = 5, parallel = T, family="binomial", alpha=1)
 coefs <- coef(lasso_model$glmnet.fit, s=lasso_model$lambda.min)
-
 ```
 
-And our original
-```{r}
-log_reg_model.limited <- train(
-  x=tabloid_train[, X_var_names[1:4], with=FALSE],
+```{r, eval=FALSE}
+log_reg_model <- train(
+  x=tabloid_train[, X_var_names, with=FALSE],
   y=tabloid_train$purchase,
   preProcess=c('center', 'scale'), 
   method='plr',    # Penalized Logistic Regression
@@ -168,16 +166,194 @@ log_reg_model.limited <- train(
 
 ```
 
-The important variables, according to Random Forest are
+Let's evaluate them on the validation data:
+```{r, echo=FALSE}
+load("models.2.2.Rda")
+```
+
+```{r, message=FALSE}
+low_prob <- 1e-6
+high_prob <- 1 - low_prob
+log_low_prob <- log(low_prob)
+log_high_prob <- log(high_prob)
+log_prob_thresholds <- seq(from=log_low_prob, to=log_high_prob, length.out=100)
+prob_thresholds <- exp(log_prob_thresholds)
+
+rf_pred_probs <- predict(
+  rf_model, newdata=tabloid_valid[ , X_var_names, with=FALSE], type='prob')
+rf_oos_performance <- bin_classif_eval(
+  rf_pred_probs$responsive, tabloid_valid$purchase, thresholds=prob_thresholds)
+
+boost_pred_probs <- predict(
+  boost_model, newdata=tabloid_valid[ , X_var_names, with=FALSE], type='prob')
+boost_oos_performance <- bin_classif_eval(
+  boost_pred_probs$responsive, tabloid_valid$purchase, thresholds=prob_thresholds)
+
+log_reg_pred_probs <- predict(
+  log_reg_model, newdata=tabloid_valid[, X_var_names, with=FALSE], type='prob')
+log_reg_oos_performance <- bin_classif_eval(
+  log_reg_pred_probs$responsive, tabloid_valid$purchase, thresholds=prob_thresholds)
+
+lasso_pred_probs <- predict(
+  lasso_model$glmnet.fit, x.valid, 
+  type="response", s=lasso_model$lambda.min
+)
+lasso_oos_perf <- bin_classif_eval(
+  lasso_pred_probs, tabloid_valid$purchase, thresholds = prob_thresholds)
+
+
+plot(x=1 - rf_oos_performance$specificity,
+     y=rf_oos_performance$sensitivity,
+     type = "l", col='darkgreen', lwd=3,
+     xlim = c(0., 1.), ylim = c(0., 1.),
+     main = "ROC Curves (Validation Data)",
+     xlab = "1 - Specificity", ylab = "Sensitivity")
+abline(a=0,b=1,lty=2,col=8)
+lines(x=1 - boost_oos_performance$specificity,
+      y=boost_oos_performance$sensitivity,
+      col='green', lwd=3)
+lines(x=1 - log_reg_oos_performance$specificity,
+      y=log_reg_oos_performance$sensitivity,
+      col='red', lwd=3)
+lines(x=1 - lasso_oos_perf$specificity,
+      y=lasso_oos_perf$sensitivity,
+      col='cornflowerblue', lwd=3)
+legend('right', c('Random Forest', 'Boosted Trees', 'Logistic Regression', 'Lasso Logit'), 
+   lty=1, col=c('darkgreen', 'green', 'red', 'cornflowerblue'), lwd=3, cex=1.)
+```
+
+They all are pretty close.  Hard to say what to choose.  
+
+
+Let's fit our original, 4-predictor model:
+```{r, eval=FALSE}
+limited.log_reg_model <- train(
+  x=tabloid_train[, X_var_names[1:4], with=FALSE],
+  y=tabloid_train$purchase,
+  preProcess=c('center', 'scale'), 
+  method='plr',    # Penalized Logistic Regression
+  metric=caret_optimized_metric,
+  trControl=caret_train_control,
+  tuneGrid=expand.grid(
+    lambda=0,      # weight penalty parameter
+    cp='aic'))     # complexity parameter (AIC / BIC)
+```
+
+How does it compare to the 9-predictor model, and our boosted model?
+
+```{r, message=FALSE}
+
+limited.log_reg_pred_probs <- predict(
+  limited.log_reg_model, newdata=tabloid_valid[, X_var_names[1:4], with=FALSE], type='prob')
+limited.log_reg_oos_performance <- bin_classif_eval(
+  limited.log_reg_pred_probs$responsive, tabloid_valid$purchase, thresholds=prob_thresholds)
+
+plot(x=1 - boost_oos_performance$specificity,
+     y=boost_oos_performance$sensitivity,
+     type = "l", col='green', lwd=3,
+     xlim = c(0., 1.), ylim = c(0., 1.),
+     main = "ROC Curves (Validation Data)",
+     xlab = "1 - Specificity", ylab = "Sensitivity")
+abline(a=0,b=1,lty=2,col=8)
+lines(x=1 - log_reg_oos_performance$specificity,
+      y=log_reg_oos_performance$sensitivity,
+      col='red', lwd=3)
+lines(x=1 - limited.log_reg_oos_performance$specificity,
+      y=limited.log_reg_oos_performance$sensitivity,
+      col='cornflowerblue', lwd=3)
+legend('right', c('Boosted Trees', 'Logistic Regression', 'Original 4-x Logit'), 
+   lty=1, col=c('green', 'red', 'cornflowerblue'), lwd=3, cex=1.)
+```
+
+##2.2
+Based on the plots, the old logit with the 4 predictors doesn't seem much worse than the new logit, and it's also close in performance to the boosted trees model.  Sure, the new model is a little better, but I would conclude that the 9-predictor model doesn't add much over the 4-predictor model, so I'm not sure the 5 new predictors are that useful.  
+
+Still, which model is best will depend on what threshold we choose in our business application. 
+
+
+The important variables, according to Random Forest, are:
+```{r}
+rf.imp <- varImp(rf_model)
+plot(rf.imp)
+```
+
+Three of the original are still on top, but moShoe, nWoApp, and propSpec jump ahead of llDol.  
+
+
+According to Boosting:
+```{r}
+boost.imp <- varImp(boost_model)
+plot(boost.imp)
+```
+
+Here, MoCbook rules.  The original 3 are still on top, but nWoApp leaps llDol.  
+
+According to our 9-predictor logit:
+```{r}
+logit.imp <- varImp(log_reg_model)
+plot(logit.imp)
+```
+
+Here, many are seemingly important.  However, moCbook falls to the bottom, and llDol drops a bit.  
+
+Overall, the important variables seem to be pretty consistent with the original 4-x model's important variables, with some slight disagreement/shifting.  
+
+Let's average their relative importance across these three models:
 
 ```{r}
+importance <- c()
+for(var in rownames(rf.imp$importance)) {
+  importance[[var]] <- (rf.imp$importance[var,"responsive"] + 
+                          boost.imp$importance[var,] + 
+                          logit.imp$importance[var,"responsive"])
+}
+importance[order(importance, decreasing = T)]
 
 ```
 
-According to Boosting:
+I would say that the following are the most important.  
+```{r} 
+names(importance[order(importance, decreasing = T)])[1:6]   
+```
 
-According to Logit lasso:
+Note:  We could also examine the lasso results, but we'd have to do some pre-scaling, and then tell lasso not to scale.  Then the coefficients would indicate their effects, relative to other predictors.  Another time, perhaps. 
+
+## 2.3
+
+We need to decide whom to target based on their probability of responding and a probability cutoff s, then send promotions costing $0.80 to these people.  If they respond, we get $40 (or $39.20, net).  
+
+Economic theory suggests that we lower our threshold until the expected marginal profit equals the marginal cost for a given threshold.  This is exactly the same condition for when expected utility equals 0.  
+
+**$$E(U)=-0.80(1-s) + 39.20s = 0$$**
+
+Implying **$s = .8/40 = 0.02$**
+
+Let's calculate the profit we get from each model given s = 0.02.
 
 ```{r}
+
+s <- 0.02 # Threshold
+
+profit <- function(probs) {
+  dotarget <- probs > s
+  print(confusion <- table(dotarget, tabloid_valid$purchase))
+  revenue <- 40*confusion["TRUE","responsive"]
+  costs <- 0.8*sum(confusion["TRUE",])
+  profit <- revenue - costs
+}
+
+profit.list <- sapply(list(rf_pred_probs$responsive,
+                           boost_pred_probs$responsive,
+                           log_reg_pred_probs$responsive,
+                           lasso_pred_probs), function(probs) profit(probs))
+names(profit.list) <- c("rf", "boost", "logit reg", "lasso")
+
+profit.list
+
+```
+
+Using our most profitable model (Boosting) our profit is $**`r formatC(profit.list[["boost"]], format='f', digits=2, big.mark=',') `**.  
+
+```{r, echo=FALSE}
 stopCluster(cl)
 ```
