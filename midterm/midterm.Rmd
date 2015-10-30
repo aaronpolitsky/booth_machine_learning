@@ -167,24 +167,26 @@ sapply(predictor.names, function(colname) {
 ```
 Our training data has no 10-vehicle crashes and few observations with greater than 6 cars.  Let's collapse all levels above 6 into "GreaterThan6" for crashes with vehicles greater than 6. 
 
-```{r, tidy=TRUE}
+```{r}
 accidents[VEH_INVL %in% 
             levels(accidents$VEH_INVL)[as.integer(levels(accidents$VEH_INVL) ) > 6],
           "VEH_INVL" := "GreaterThan6"]
 accidents <- droplevels(accidents)
 
-accidents.valid[VEH_INVL %in% levels(accidents.valid$VEH_INVL)[as.integer(levels(accidents.valid$VEH_INVL)) > 6],
-                "VEH_INVL" := "GreaterThan6"]
+accidents.valid[
+  VEH_INVL %in% 
+    levels(accidents.valid$VEH_INVL)[as.integer(levels(accidents.valid$VEH_INVL)) > 6],
+  "VEH_INVL" := "GreaterThan6"]
 accidents.valid <- droplevels(accidents.valid)
 
 # check
 
 sapply(predictor.names, function(colname) {
-  table(accidents[[colname]])
+  any(table(accidents[[colname]])==0)
 })
 
 sapply(predictor.names, function(colname) {
-  table(accidents.valid[[colname]])
+  any(table(accidents.valid[[colname]])==0)
 })
 
 ```
@@ -202,7 +204,7 @@ caret_train_control <- trainControl(
   summaryFunction=mnLogLoss,   # equivalent to 1 / 2 of Deviance
   method='repeatedcv',         # repeated Cross Validation
   number=5,                    # 5 folds
-  repeats=1,                   # 1 repeats
+  repeats=2,                   # repeats
   allowParallel=TRUE)
 ```
 
@@ -253,7 +255,7 @@ system.time(
 
 log_reg_model <- 
   glm(severe.injury ~ ., 
-      data=data.frame(accidents[, c("VEH_INVL", "severe.injury"), with=F]), 
+      data=data.frame(accidents[, c(predictor.names, "severe.injury"), with=F]), 
       family = binomial()
 )
 ```
@@ -315,14 +317,17 @@ Boosting and RandomForest look great, but Logistic didn't do so well.
 ## 1.3:  Measuring the effect of alcohol on the severity of the accident.  
 
 ### Simple Logit
-We could estimate a logit model regressing severity on alcohol, controlling for all other predictors so as to isolate the ceteris-paribus effect.  The coefficient on the alcohol involvement dummy will represent an estimate of the difference in probability that the accident is severe given alcohol involvement.  
+We could estimate a logit model regressing severity on alcohol, controlling for all other predictors so as to isolate the ceteris-paribus effect.  The coefficient on the alcohol involvement dummy will represent an estimate of the difference in log of probability that the accident is severe given alcohol involvement.  
 
+(Here, using a no-intercept model, because we haven't defined the base category for any of our other predictors.)
 ```{r, tidy=TRUE}
-logit.alcohol.effect.model <- glm(severe.injury ~ . , data=accidents[,c(predictor.names, "ALCHL_I", "severe.injury"), with=F], family=binomial())
+logit.alcohol.effect.model <- glm(severe.injury ~ . -1, data=accidents[,c(predictor.names, "ALCHL_I", "severe.injury"), with=F], family=binomial())
 
+exp(logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"])
 ```
 
-Alcohol involvement increases the probability of a severe injury accident by **`r formatC(100 * logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"], format='f', digits=2, big.mark=',')`%**, controlling for our other predictors.  
+Alcohol involvement increases the probability of a severe injury accident by **`r formatC(100 * (exp(logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"])-1), format='f', digits=2, big.mark=',')`%**, controlling for our other predictors.  
 
 (Note: Having taken a quarter of Program Evaluation at Harris, I feel the need to mention that if we really wanted to measure the effect of alcohol involvement on severity of injuries, we should consider a potential outcomes framework.  I would probably use a propensity score matching technique: weighing the non-alcohol group by p/(1-p), then calculate the difference in their severity means.  One problem with propensity scores is that you have to get the functional forms right if you're using a regression, but now we have tree methods, which can sort out those nasty, nonlinear functional forms and get a great p-score prediction.  Exciting, but I'm moving on to number 2.)
+
 
