@@ -1,0 +1,55 @@
+---
+output: html_document
+---
+# 3
+
+## Prompt:
+
+We would like to target some subset of the huge number of visitors to our main retail web
+page with a new special offer. Instead of the normal early May special offer of a discounted
+flower bouquet for Mom, we’ve decided to offer select customers a 30% discount on any
+electric razor purchase from our stock.
+
+##3.1 
+
+### Intro
+
+For either offer, we can consider the costs and the benefits.  
+
+The costs to display an offer are effectively zero, so let's consider that portion 0.  This implies that we will show every visitor one of the offers (unless we predict that showing them an offer will drive them away from the site, which we believe to be unlikely).  The cost of the visitor taking the special offer (vs. buying at retial price) is the discount amount of the offer, times, of course, the quantity they bought at that discount.  (Let's assume the quantity for either offer is capped at 1, to keep things simple.)
+
+The benefit of a visitor taking an offer has two components:  the profit (or loss) due to the sale of the offered good (at the discounted price), plus the profit we can earn from add-on or future sales.  The former could be positive, zero, or negative, in the case that we discount such that we expect the offer to be a loss-leader.  The latter, let's assume, is positive.  
+
+Generally speaking, we want to choose the offer that has the highest expected net benefit, be it from them purchasing the offered product, or from this motivating them to purchase other goods, or both.  
+
+For either offer, we will predict several probabilities:  the probability that the person takes the offer at the discounted price, and the probability that the person makes *other purchases*  _given_ that the visitor has been offered a bouquet.  
+
+For simplicity, let's assume our profit from selling the discounted, offered product to be its net profit.  Let's also assume we can estimate the expected profit of other purchases (below, $pi_{other\ purchases}) which would be another, netsted expected value framework of its own, conditional on all sorts of things.
+
+Our expected value calculation for offer $O$ would look like:
+
+$$E(O) = P(Takes_O) \times \pi_{taken,O} + P(Other\ Purchases\ |\ offered_O) \times \pi_{other\ purchases}$$
+
+We would base our decision on whether to show a given visitor the Bouquet offer or the Razor offer based on whichever offer's Expected value is higher, and, greater than zero (in the case that loss-leading is expected to fail to generate other purchases.  In this case, we show no offer.)
+
+##3.2
+
+To solve this problem, we need to build models to predict two probabilities: 
+
+- the probability of a given visitor to take the offer 
+- the probability of a given visitor to make other purchases given that they have been shown an offer.  
+
+As I mentioned above, we would also need to construct a model for the Expected profit of the other purchases.  This could be a function of the type of offer shown.  
+
+##3.3
+The following assumes we can identify a visitor (or household) using cookies or some IP-related information.  In other words, it's not as if every visit is anonymous.  
+
+We likely have data on visitors who have visited in the past.  Since we offer this every May, we can see how prior offers (bouquets) may have influenced their behavior.  But since the razor offer is new, we don't have prior offer history data.  
+
+What we can think about are whether the person is likely to take either offer.  Which product interests them more?  Prior purchase and visiting data (what products they purchased, or merely viewed), may serve as predictors for these.  We should feel more confident about predicting behavior of heavy-history visitors, but for new or light-history visitors, we could build models matching their behavior (propensity score matching?) to better-known customers, and then predicting based on these similarities.  
+
+This should give us a sense of whether they'd bite either offer, how they respond having been shown an offer, and how much we can expect them to buy given either offer.  
+
+We would want to routinely update our training set with new behavior as we gain experience with our visitors.  
+
+Some concerns:  it may be tricky to assess whether the offer was what motivated them to act.  They may have bought the offered good, regardless, and even at a higher price (always-takers).  On the other hand, they may never have taken the offer (never-takers).  We want to focus on the effects of those who were moved on the margin ("compliers").  To help learn, we could run random experiments to try to measure the efficacy of an offer, but I digress.  
