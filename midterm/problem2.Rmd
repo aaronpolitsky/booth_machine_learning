@@ -1,3 +1,6 @@
+---
+output: pdf_document
+---
 #2 Tabloid, Revisited
 
 #2.1
@@ -8,6 +11,12 @@ library(data.table)
 library(doParallel)
 library(plyr)
 source("EvaluationMetrics.R")
+```
+
+```{r, results='hide'}
+cl <- makeCluster(detectCores())   # I don't mind using all of my cores
+clusterEvalQ(cl, library(foreach))
+registerDoParallel(cl)   # register this cluster
 ```
 
 ```{r}
@@ -40,9 +49,8 @@ column_classes <- c(
   )
 
 
-data_repo_raw_path <- 'data'
 tabloid <- fread(
-  file.path(data_repo_raw_path, 'tabdat9n20.csv'),
+  file.path("data", 'tabdat9n20.csv'),
   colClasses=column_classes)
 tabloid[ , purchase := factor(purchase,
                               levels=c(0, 1), labels=y_classes)]
@@ -61,4 +69,115 @@ No missing data.
 
 Out of the **`r formatC(num.samples, format='d', big.mark=',')`** samples, the incidence of marketing-responsive purchase is **`r formatC(100 * sum(tabloid$purchase == 'responsive') / num.samples, format='f', digits=2, big.mark=',')`%**. Note that this creates a "**skewed classes**" problem: one of the classes of cases (here the "responsive" class) is significantly rarer than the other.
 
-_(**note**: in more extreme cases where one class is much, much rarer than the other to the order of 1000 or 10,000 times, our model fitting procedures would need to be tweaked; but this case is not so extreme)_
+##2.1
+
+Since our data is likely in good shape, but we almost certainly don't have an idea of functional form, I bet tree methods would work well.  And, since question 2.2 asks about importance, we can use random forests and boosting to assess variable importance.  I suppose a lasso might also tell us which variables are important, too.
+
+First, split up our train and validation data:
+```{r}
+set.seed(99) # I should probably watch Gretzky on youtube this December.
+
+valid_proportion <- 1 / 3
+valid_indices <- createDataPartition(
+  y=tabloid$purchase,
+  p=valid_proportion,
+  list=FALSE)
+
+tabloid_valid <- tabloid[valid_indices, ]
+tabloid_train <- tabloid[-valid_indices, ]
+```
+
+Just to sanity-check that the data sets have been split representatively by **`caret`**: the responsive incidences in the Training and Validation sets are **`r formatC(100 * sum(tabloid_train$purchase == 'responsive') / nrow(tabloid_train), format='f', digits=2, big.mark=',')`** and **`r formatC(100 * sum(tabloid_valid$purchase == 'responsive') / nrow(tabloid_valid), format='f', digits=2, big.mark=',')`**, respectively.
+
+## Fitting our Models
+
+Let's train 3 types of classification models: a Random Forest, a Boosted Trees model and a Lasso.
+
+```{r}
+caret_optimized_metric <- 'logLoss'   # equivalent to 1 / 2 of Deviance
+
+caret_train_control <- trainControl(
+  classProbs=TRUE,             # compute class probabilities
+  summaryFunction=mnLogLoss,   # equivalent to 1 / 2 of Deviance
+  method='repeatedcv',         # repeated Cross Validation
+  number=5,                    # 5 folds
+  #repeats=2,                   # repeats
+  repeats=1,                   # repeats
+  allowParallel=TRUE)
+```
+
+```{r}
+B <- 400
+
+rf_model <- train(
+  x=tabloid_train[, X_var_names, with=FALSE],
+  y=tabloid_train$purchase,
+  method='parRF',     # parallel Random Forest
+  metric=caret_optimized_metric,
+  verbose=TRUE,
+  ntree=B,            # number of trees in the Random Forest
+  nodesize=30,        # minimum node size set small enough to allow for complex trees,
+                      # but not so small as to require too large B to eliminate high variance
+  importance=TRUE,    # evaluate importance of predictors
+  keep.inbag=TRUE,
+  trControl=caret_train_control,
+  tuneGrid=NULL)
+```
+
+```{r}
+B <- 1000
+
+boost_model <- train(
+  x=tabloid_train[, X_var_names, with=FALSE],
+  y=tabloid_train$purchase,
+  method='gbm',       # Generalized Boosted Models
+  metric=caret_optimized_metric,
+  verbose=TRUE,
+  trControl=caret_train_control,
+  tuneGrid=expand.grid(
+    n.trees=B,              # number of trees
+    interaction.depth=4,    # max tree depth,
+    n.minobsinnode=100,     # minimum node size
+    shrinkage=0.01))        # shrinkage parameter, a.k.a. "learning rate"
+```
+
+```{r}
+library(glmnet)
+
+x.train <- as.matrix(tabloid_train[,-("purchase"), with=F])
+x.valid <- as.matrix(tabloid_valid[,-("purchase"), with=F])
+y.train <- tabloid_train$purchase
+
+lasso_model <- cv.glmnet(x.train, y.train, nfolds = 5, parallel = T, family="binomial", alpha=1)
+coefs <- coef(lasso_model$glmnet.fit, s=lasso_model$lambda.min)
+
+```
+
+And our original
+```{r}
+log_reg_model.limited <- train(
+  x=tabloid_train[, X_var_names[1:4], with=FALSE],
+  y=tabloid_train$purchase,
+  preProcess=c('center', 'scale'), 
+  method='plr',    # Penalized Logistic Regression
+  metric=caret_optimized_metric,
+  trControl=caret_train_control,
+  tuneGrid=expand.grid(
+    lambda=0,      # weight penalty parameter
+    cp='aic'))     # complexity parameter (AIC / BIC)
+
+```
+
+The important variables, according to Random Forest are
+
+```{r}
+
+```
+
+According to Boosting:
+
+According to Logit lasso:
+
+```{r}
+stopCluster(cl)
+```
