@@ -8,7 +8,7 @@ output: pdf_document
 #1
 
 Let's source our dependencies and load our libraries.
-```{r, message=F}
+```{r, message=FALSE}
 library(caret)
 library(data.table)
 library(doParallel)
@@ -17,7 +17,7 @@ source("EvaluationMetrics.R")
 ```
 
 And set up parallelization:
-```{r, message=F}
+```{r, results='hide'}
 cl <- makeCluster(detectCores())   # I don't mind using all of my cores
 clusterEvalQ(cl, library(foreach))
 registerDoParallel(cl)   # register this cluster
@@ -160,15 +160,16 @@ Just to sanity-check that the data sets have been split representatively by **`c
 
 What about level-counts?
 ```{r}
-lapply(predictor.names, function(colname) {
+sapply(predictor.names, function(colname) {
   table(accidents[[colname]])
 })
 
 ```
 Our training data has no 10-vehicle crashes and few observations with greater than 6 cars.  Let's collapse all levels above 6 into "GreaterThan6" for crashes with vehicles greater than 6. 
 
-```{r}
-accidents[VEH_INVL %in% levels(accidents$VEH_INVL)[as.integer(levels(accidents$VEH_INVL) ) > 6],
+```{r, tidy=TRUE}
+accidents[VEH_INVL %in% 
+            levels(accidents$VEH_INVL)[as.integer(levels(accidents$VEH_INVL) ) > 6],
           "VEH_INVL" := "GreaterThan6"]
 accidents <- droplevels(accidents)
 
@@ -178,11 +179,11 @@ accidents.valid <- droplevels(accidents.valid)
 
 # check
 
-lapply(predictor.names, function(colname) {
+sapply(predictor.names, function(colname) {
   table(accidents[[colname]])
 })
 
-lapply(predictor.names, function(colname) {
+sapply(predictor.names, function(colname) {
   table(accidents.valid[[colname]])
 })
 
@@ -260,7 +261,7 @@ log_reg_model <-
 ## Justification Based on Out of Sample Performance
 We'll now evaluate the OOS performances of these 3 models on the Validation set to select a model we think is best:
 
-```{r}
+```{r, message=FALSE, tidy=TRUE}
 # Check for missing Validation levels:
 sapply(predictor.names, function(colname) {
   all(levels(accidents.valid[[colname]]) %in% levels(accidents[[colname]]))
@@ -289,8 +290,9 @@ log_reg_pred_probs <- predict(
 
 log_reg_oos_performance <- bin_classif_eval(
   log_reg_pred_probs, accidents.valid$severe.injury, thresholds=prob_thresholds)
+```
 
-
+```{r}
 plot(x=1 - rf_oos_performance$specificity,
      y=rf_oos_performance$sensitivity,
      type = "l", col='darkgreen', lwd=3,
@@ -315,14 +317,12 @@ Boosting and RandomForest look great, but Logistic didn't do so well.
 ### Simple Logit
 We could estimate a logit model regressing severity on alcohol, controlling for all other predictors so as to isolate the ceteris-paribus effect.  The coefficient on the alcohol involvement dummy will represent an estimate of the difference in probability that the accident is severe given alcohol involvement.  
 
-```{r}
+```{r, tidy=TRUE}
 logit.alcohol.effect.model <- glm(severe.injury ~ . , data=accidents[,c(predictor.names, "ALCHL_I", "severe.injury"), with=F], family=binomial())
-
-logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"]
 
 ```
 
-Alcohol involvement increases the probability of a severe injury accident by `r format(logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"],digits=3)*100`%, controlling for our other predictors.  
+Alcohol involvement increases the probability of a severe injury accident by **`r formatC(100 * logit.alcohol.effect.model$coefficients["ALCHL_IAlcohol"], format='f', digits=2, big.mark=',')`%**, controlling for our other predictors.  
 
-Having taken a quarter of Program Evaluation at Harris, I feel the need to mention that if we really wanted to measure the effect of alcohol involvement on severity of injuries, we should consider a potential outcomes framework.  I would probably use a propensity score matching technique, probably using inverse p-score weighting for the alcohol and non-alcohol group, then calculate the difference in their severity means.  One problem with p scores is that you have to get the functional forms right if you're using a regression, but now we have tree methods, which can sort out those nasty, nonlinear functional forms and get a great p-score prediction.  Exciting, but I'm moving on to number 2. 
+(Note: Having taken a quarter of Program Evaluation at Harris, I feel the need to mention that if we really wanted to measure the effect of alcohol involvement on severity of injuries, we should consider a potential outcomes framework.  I would probably use a propensity score matching technique: weighing the non-alcohol group by p/(1-p), then calculate the difference in their severity means.  One problem with propensity scores is that you have to get the functional forms right if you're using a regression, but now we have tree methods, which can sort out those nasty, nonlinear functional forms and get a great p-score prediction.  Exciting, but I'm moving on to number 2.)
 
