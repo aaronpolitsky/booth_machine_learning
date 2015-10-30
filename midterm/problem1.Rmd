@@ -21,8 +21,6 @@ Now, import our Accident data:
 
 set.seed(99) # Gretzky.  Why not?
 
-data_folder_path <- 'data'
-
 accidents <- as.data.table(read.table(
   file.path("data", 'Accidents.csv'),
   header=TRUE, sep=',', stringsAsFactors=T))
@@ -323,4 +321,6 @@ Alcohol involvement increases the probability of a severe injury accident by **`
 
 (Note: Having taken a quarter of Program Evaluation at Harris, I feel the need to mention that if we really wanted to measure the effect of alcohol involvement on severity of injuries, we should consider a potential outcomes framework.  I would probably use a propensity score matching technique: weighing the non-alcohol group by p/(1-p), then calculate the difference in their severity means.  One problem with propensity scores is that you have to get the functional forms right if you're using a regression, but now we have tree methods, which can sort out those nasty, nonlinear functional forms and get a great p-score prediction.  Exciting, but I'm moving on to number 2.)
 
-
+```{r, echo=F}
+stopCluster(cl)
+```
