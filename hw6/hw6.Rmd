@@ -1,0 +1,90 @@
+---
+title: "Homework 6"
+author: "Aaron Politsky"
+date: "November 8, 2015"
+output: pdf_document
+---
+
+```{r}
+set.seed(99) 
+load("data.Rda")
+source("~/HelpR/lift.R")
+source("~/HelpR/EvaluationMetrics.R")
+
+#source("ParseData.R")
+#data <- parse_human_activity_recog_data()
+```
+
+# 1. Build a Neural Network 
+
+```{r} 
+library(h2o)
+
+# start or connect to h2o server
+h2oServer <- h2o.init(max_mem_size="4g", nthreads=-1)
+
+# we need to load data into h2o format
+train_hex = as.h2o(data.frame(x=data$X_train, y=data$y_train))
+test_hex = as.h2o(data.frame(x=data$X_test, y=data$y_test))
+
+predictors <- 1:(ncol(train_hex)-1)
+response <- ncol(train_hex)
+```
+
+Let's see how different models perform when we try different parameters.  
+
+```{r}
+hidden <- list(c(64), c(128))#, c(256), c(512), c(1024), c(256,256), c(1024,1024), c(128,128,128))
+hyper.params <- 
+  list(
+    epochs=c(2,5,10), 
+    hidden=list(c(64), c(128), c(256), c(512), c(1024), c(256,256), c(1024,1024), c(128,128,128))
+  )
+
+```
+
+
+```{r, eval=F}
+if (offline == FALSE) {
+  dl.grid <- h2o.grid(
+    algorithm = "deeplearning",
+    x=predictors, y=response,
+    training_frame=train_hex,
+    activation="Tanh",
+    classification_stop=-1,  # Turn off early stopping
+    l1=1e-5,
+    hyper_params = hyper.params
+  ) 
+  summary(dl.grid)
+  dl.grid.models <- lapply(dl.grid@model_ids, function(id) h2o.getModel(id))
+  model.paths <- lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
+
+} 
+```
+
+```{r, echo = F} 
+load("model.paths.Rda")
+dl.grid.models <- lapply(model.paths, function(p) h2o.loadModel(p))
+```
+
+```{r}
+# performance on test
+ptest.list <- lapply(dl.grid.models, function(m) h2o.performance(m, test_hex))
+cm.test.list <- lapply(ptest.list, function(ptest) h2o.confusionMatrix(ptest))
+
+# performance on train
+ptrain.list <- lapply(dl.grid.models, function(dl_model) h2o.performance(dl_model, train_hex))
+cm.train.list <- lapply(ptrain.list, function(ptrain) h2o.confusionMatrix(ptrain))
+```
+
+Which did the best?
+
+```{r}
+ptest.df <- ldply(cm.test.list, 
+                  function(cm) 
+                    c(total.error.rate = cm$Error[7]))
+best.model.index <- which.min(ptest.df$total.error.rate)
+best.dl.model <- dl.grid.models[[best.model.index]]
+cm.test.list[[best.model.index]]
+
+```
