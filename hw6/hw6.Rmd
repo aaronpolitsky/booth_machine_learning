@@ -16,7 +16,7 @@ source("~/HelpR/EvaluationMetrics.R")
 #data <- parse_human_activity_recog_data()
 ```
 
-# 1. Build a Neural Network 
+# 1. Neural Network Models
 
 ```{r} 
 
@@ -80,11 +80,112 @@ Which did the best?
 library(plyr)
 ptest.df <- ldply(cm.test.list, 
                   function(cm) 
-                    c(total.error.rate = cm$Error[7]))
-best.model.index <- which.min(ptest.df$total.error.rate)
+                    c(tot.test.error.rate = cm$Error[7]))
+ptest.df <- cbind(ptest.df, expand.grid((hyper.params)))
+
+best.model.index <- which.min(ptest.df$tot.test.error.rate)
 best.dl.model <- dl.grid.models[[best.model.index]]
 cm.test.list[[best.model.index]]
 
 ```
 
-Model 2 did the best, with a **`r formatC( 100 * ptest.df[2,], format='f', digits=2)`%** test error rate.
+Model 2 did the best, with a **`r formatC( 100 * ptest.df[2,], format='f', digits=2)`%** test error rate.  
+
+How did our choice of epochs and number and levels of neurons parameters affect performance?  
+
+```{r}
+ptest.df[order(ptest.df$tot.test.error.rate),]
+```
+I can't make much of a pattern out of that.  I guess we can just try different things and see how it performs.  
+
+# 2. Tree Models
+
+Let's see how different models perform when we try different parameters.  
+
+## Random Forests
+```{r}
+rf.hyper.params <- 
+  list(
+    ntrees=c(250,500,1000), 
+    min_rows = c(50,100)
+  )
+
+```
+
+
+```{r, eval=F}
+rf.grid <- h2o.grid(
+  algorithm = "randomForest",
+  x=predictors, y=response,
+  training_frame=train_hex,
+  hyper_params = rf.hyper.params
+) 
+summary(rf.grid)
+rf.grid.models <- lapply(rf.grid@model_ids, function(id) h2o.getModel(id))
+rf.model.paths <- lapply(rf.grid.models, function(m) h2o.saveModel(m, path="models"))
+
+```
+
+## Boosting
+```{r}
+boost.hyper.params <- 
+  list(
+    ntrees = c(500,2000),
+    learn_rate = c(.2, .01),
+    max_depth=c(4,10)
+  )
+
+```
+
+
+```{r, eval=F}
+boost.grid <- h2o.grid(
+  algorithm = "gbm",
+  x=predictors, y=response,
+  training_frame=train_hex,
+  hyper_params = boost.hyper.params
+) 
+summary(boost.grid)
+boost.grid.models <- lapply(boost.grid@model_ids, function(id) h2o.getModel(id))
+boost.model.paths <- lapply(boost.grid.models, function(m) h2o.saveModel(m, path="models"))
+
+```
+
+Let's assess performance:
+
+```{r, eval=F}
+# performance on test set
+rf.ptest.list <- lapply(rf.grid.models, function(m) h2o.performance(m, test_hex))
+rf.cm.test.list <- lapply(rf.ptest.list, function(ptest) h2o.confusionMatrix(ptest))
+
+boost.ptest.list <- lapply(boost.grid.models, function(m) h2o.performance(m, test_hex))
+boost.cm.test.list <- lapply(boost.ptest.list, function(ptest) h2o.confusionMatrix(ptest))
+```
+
+Which did the best?
+
+```{r}
+library(plyr)
+rf.ptest.df <- ldply(rf.cm.test.list, 
+                  function(cm) 
+                    c(tot.test.error.rate = cm$Error[7]))
+rf.ptest.df <- cbind(rf.ptest.df, expand.grid((rf.hyper.params)))
+
+
+rf.best.model.index <- which.min(rf.ptest.df$tot.test.error.rate)
+rf.best.model <- rf.grid.models[[rf.best.model.index]]
+
+
+boost.ptest.df <- ldply(boost.cm.test.list, 
+                  function(cm) 
+                    c(tot.test.error.rate = cm$Error[7]))
+boost.ptest.df <- cbind(boost.ptest.df, expand.grid((boost.hyper.params)))
+
+boost.best.model.index <- which.min(boost.ptest.df$tot.test.error.rate)
+boost.best.model <- boost.grid.models[[boost.best.model.index]]
+
+rf.ptest.df[rf.best.model.index,]
+boost.ptest.df[boost.best.model.index,]
+ptest.df[best.model.index,]
+```
+
