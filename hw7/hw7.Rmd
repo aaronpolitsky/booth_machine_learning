@@ -1,0 +1,96 @@
+---
+title: "Homework 7"
+author: "Aaron Politsky"
+date: "November 15, 2015"
+output: pdf_document
+---
+
+```{r, echo=FALSE, message=FALSE}
+library(recommenderlab)
+load("ratingData.Rda")
+```
+
+# 1.  
+Find the user who has rated the most amount of video games. 
+```{r}
+which.max(rowCounts(ratingData))
+```
+
+# 2.  
+Which video game has been rated by the most amount of users? 
+```{r}
+which.max(colCounts(ratingData))
+```
+
+# 3. 
+Find the user who is most similar to "U141954350”
+```{r}
+user <- ratingData[rownames(ratingData)=="U141954350",]
+getData.frame(user)
+rowSds(user)
+```
+This user is unique in that he has rated 10 games, but has rated them all the same.  His de-meaned data would be 0.  His pearson correlation would be undefined.  
+
+```{r}
+rdn = normalize(ratingData)
+user <- rdn['U141954350',]
+
+similarity.matrix <- similarity(x=user, 
+                                y=rdn[rownames(rdn)!='U141954350',], 
+                                which="users", 
+                                method = "cosine")
+```
+The user with the most similarity to U141954350 is 
+`r colnames(similarity.matrix)[order(similarity.matrix, decreasing = T)][1]`
+
+This isn't saying a whole lot, since their common support is only over one item:
+```{r}
+getData.frame(rdn['U007042545',])[
+  getData.frame(rdn['U007042545'])$item %in% getData.frame(rdn['U141954350'])$item,]
+```
+
+# 4.
+
+Recommend a game for our user.  
+
+Let's try user- and item-based collaborative filtering.  
+```{r}
+ubcf.rec.model <- 
+  Recommender(ratingData[rownames(ratingData)!='U141954350',], 
+              method="UBCF", 
+              param=list(normalize="Z-score", method="cosine",nn=10))
+ubcf.recommendation <- 
+  predict(ubcf.rec.model, ratingData['U141954350',], type="topNList", n=10)
+as(ubcf.recommendation, "matrix")[1,1:11]
+
+ibcf.rec.model <- 
+  Recommender(ratingData, method="IBCF", 
+              param=list(normalize="Z-score", method="Pearson"))
+ibcf.recommendation <- 
+  predict(ibcf.rec.model, ratingData['U141954350',], type="topNList", n=5)
+as(ibcf.recommendation, "list")
+```
+I wonder if the fact that the item-based collaboration returns an empty list may have to do with how our user has rated everything the same and our use of Pearson similarity.  Or, since not many users have rated games that our user has, perhaps there isn't much coming out of the similarity-weighted ratings average.  
+
+Let's try latent popularity and latent-factor recommendation models:
+```{r}
+pop.rec.model <- 
+  Recommender(ratingData, method = "POPULAR")
+pop.recommendation <- 
+  predict(pop.rec.model, ratingData['U141954350',], type="topNList", n=5)
+as(pop.recommendation, "list")
+
+lf.rec.model <- 
+  Recommender(ratingData, 
+              method='SVD',           # Item-Based Collaborative Filtering
+              parameter=list(
+                categories=25,        # number of latent factors
+                normalize = "Z-score",
+                treat_na = "median"
+              ))
+lf.recommendation <- 
+  predict(lf.rec.model, ratingData, type="ratings")
+lf.list <- as(lf.recommendation, "list")
+which.max(lf.list[['U141954350']])
+```
+Latent-factor modeling agrees with user-based collaborative filtering, but not with popularity.  (The latter makes sense, because it seems that our user doesn't rate commonly-rated games.) 
