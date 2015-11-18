@@ -1,0 +1,53 @@
+---
+title: "Homework 8"
+author: "Aaron Politsky"
+date: "November 17, 2015"
+output: pdf_document
+---
+
+# Part 1
+```{r, message=FALSE}
+library(igraph)
+library(igraphdata)
+data(karate, package = "igraphdata")
+
+# nodes in faction 1 will be rectangles
+# nodes in faction 2 will be circles
+shapes = c('rectangle', 'circle')
+faction_vertex_shape = get.vertex.attribute(karate, "Faction")
+faction_vertex_shape[faction_vertex_shape == 1] = shapes[1]
+faction_vertex_shape[faction_vertex_shape == 2] = shapes[2]
+
+# store layout so that it does not change for different plots
+karate_layout = layout.davidson.harel(karate)
+```
+
+```{r}
+clustering.functions <- c(cluster_edge_betweenness,
+                          cluster_fast_greedy,
+                          cluster_infomap,
+                          cluster_label_prop,
+                          cluster_leading_eigen,
+                          cluster_louvain,
+                          cluster_optimal,
+                          cluster_spinglass,
+                          cluster_walktrap)
+comms <- lapply(clustering.functions, function(cf) {cf(karate)})
+
+lapply(comms, function(c) {
+  if(is.hierarchical(c)) {
+    cl2 <- cutat(c, no=2)
+    plot(karate,
+         layout=karate_layout, 
+         vertex.shape=faction_vertex_shape,
+         vertex.color=cl2
+    )
+    title(main=c$algorithm, sub=modularity(karate, cl2))
+  }
+  else {
+    plot(x = c, karate, layout=karate_layout, vertex.shape=faction_vertex_shape)
+    title(main=c$algorithm)
+  }
+})
+
+```
