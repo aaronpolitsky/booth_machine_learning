@@ -22,6 +22,7 @@ faction_vertex_shape[faction_vertex_shape == 2] = shapes[2]
 karate_layout = layout.davidson.harel(karate)
 ```
 
+Generate communities using a variety of algorithms:
 ```{r}
 clustering.functions <- c(cluster_edge_betweenness,
                           cluster_fast_greedy,
@@ -33,21 +34,174 @@ clustering.functions <- c(cluster_edge_betweenness,
                           cluster_spinglass,
                           cluster_walktrap)
 comms <- lapply(clustering.functions, function(cf) {cf(karate)})
+```
 
-lapply(comms, function(c) {
-  if(is.hierarchical(c)) {
-    cl2 <- cutat(c, no=2)
-    plot(karate,
-         layout=karate_layout, 
-         vertex.shape=faction_vertex_shape,
-         vertex.color=cl2
+First, examine the hierarchical communities:
+
+```{r}
+c <- comms[[1]]
+cl2 <- cutat(c, no=2)
+plot(karate,
+     layout=karate_layout, 
+     vertex.shape=faction_vertex_shape,
+     vertex.color=cl2
+)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+```
+Edge Betweeness is hierarchical and when cut to two communities, has only two error nodes.  
+
+```{r}
+c <- comms[[2]]
+cl2 <- cutat(c, no=2)
+plot(karate,
+     layout=karate_layout, 
+     vertex.shape=faction_vertex_shape,
+     vertex.color=cl2
+)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+```
+Fast Greedy actually gets it right.  Impressive.  
+
+```{r}
+c <- comms[[5]]
+cl2 <- cutat(c, no=2)
+plot(karate,
+     layout=karate_layout, 
+     vertex.shape=faction_vertex_shape,
+     vertex.color=cl2
+)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+```
+Leading Eigenvector seems to want to use too many communities and complains about cutting.  
+
+
+```{r}
+c <- comms[[9]]
+cl2 <- cutat(c, no=2)
+plot(karate,
+     layout=karate_layout, 
+     vertex.shape=faction_vertex_shape,
+     vertex.color=cl2
+)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+```
+Walktrap actually gets it right, too.  
+
+And on to the non-hierarchical communities:
+
+```{r}
+c <- comms[[3]]
+plot(x = c, karate, layout=karate_layout, vertex.shape=faction_vertex_shape)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+
+```
+Infomap does pretty well, though it split the H community into two.  
+
+```{r}
+c <- comms[[4]]
+plot(x = c, karate, layout=karate_layout, vertex.shape=faction_vertex_shape)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+
+```
+Label Prop does basically the same as Infomap. 
+
+```{r}
+c <- comms[[6]]
+plot(x = c, karate, layout=karate_layout, vertex.shape=faction_vertex_shape)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+
+```
+Multilevel wants to sub-faction the true A community.  
+
+
+```{r}
+c <- comms[[7]]
+plot(x = c, karate, layout=karate_layout, vertex.shape=faction_vertex_shape)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+
+```
+Optimal?  Not so much.  Same as Multilevel.  
+
+```{r}
+c <- comms[[8]]
+plot(x = c, karate, layout=karate_layout, vertex.shape=faction_vertex_shape)
+title(main=c$algorithm, sub=paste("modularity:", 
+                                  formatC(modularity(karate, cl2),digits = 3)))
+
+```
+Spinglass, same as above.  
+
+
+# Part 2
+
+```{r, eval=F}
+wg = read.graph("wikipedia.gml", "gml")
+summary(wg)
+
+list.vertex.attributes(wg)
+get.vertex.attribute(wg, "label")[1:5]
+
+# some algorithms work on undirected graphs only
+wgu = as.undirected(wg)
+summary(wgu)
+
+# compute communities and visually inspect if they make sense
+
+system.time(lb <- cluster_label_prop(wgu))
+system.time(fg <- cluster_fast_greedy(wgu))
+system.time(lv <- cluster_louvain(wgu))
+system.time(wt <- cluster_walktrap(wg))  
+system.time(im <- cluster_infomap(wg))
+
+system.time(lgl.layout <- layout_with_lgl(wgu))
+
+system.time( {
+  plot(wgu,
+     layout=lgl.layout, #, 
+     vertex.color=fg
     )
-    title(main=c$algorithm, sub=modularity(karate, cl2))
-  }
-  else {
-    plot(x = c, karate, layout=karate_layout, vertex.shape=faction_vertex_shape)
-    title(main=c$algorithm)
-  }
+  title(main="Fast Greedy")
 })
+
+system.time({
+  plot(wgu,
+     layout=lgl.layout, #, 
+     vertex.color=lb
+    )
+  title(main="Label Propagation")
+})
+
+system.time({
+  plot(wgu,
+     layout=lgl.layout, #, 
+     vertex.color=lv
+    )
+  title(main="Louvain")
+})
+
+system.time({
+  plot(wg,
+     layout=lgl.layout, #, 
+     vertex.color=wt
+    )
+  title(main="Walktrap")
+})
+
+system.time({
+  plot(wg,
+     layout=lgl.layout, #, 
+     vertex.color=im
+    )
+  title(main="Infomap")
+})
+
 
 ```
