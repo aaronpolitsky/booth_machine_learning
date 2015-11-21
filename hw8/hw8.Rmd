@@ -7,6 +7,7 @@ output: pdf_document
 
 # Part 1
 ```{r, message=FALSE}
+
 library(igraph)
 library(igraphdata)
 data(karate, package = "igraphdata")
@@ -19,7 +20,11 @@ faction_vertex_shape[faction_vertex_shape == 1] = shapes[1]
 faction_vertex_shape[faction_vertex_shape == 2] = shapes[2]
 
 # store layout so that it does not change for different plots
-karate_layout = layout.davidson.harel(karate)
+if (file.exists("karate.layout.Rdata")) {
+  load("karate.layout.Rdata")
+} else {
+  karate_layout <- layout.davidson.harel(karate)
+}
 ```
 
 Generate communities using a variety of algorithms:
@@ -49,6 +54,7 @@ plot(karate,
 title(main=c$algorithm, sub=paste("modularity:", 
                                   formatC(modularity(karate, cl2),digits = 3)))
 ```
+
 Edge Betweeness is hierarchical and when cut to two communities, has only two error nodes.  
 
 ```{r}
@@ -62,6 +68,7 @@ plot(karate,
 title(main=c$algorithm, sub=paste("modularity:", 
                                   formatC(modularity(karate, cl2),digits = 3)))
 ```
+
 Fast Greedy actually gets it right.  Impressive.  
 
 ```{r}
@@ -75,6 +82,7 @@ plot(karate,
 title(main=c$algorithm, sub=paste("modularity:", 
                                   formatC(modularity(karate, cl2),digits = 3)))
 ```
+
 Leading Eigenvector seems to want to use too many communities and complains about cutting.  
 
 
@@ -89,6 +97,7 @@ plot(karate,
 title(main=c$algorithm, sub=paste("modularity:", 
                                   formatC(modularity(karate, cl2),digits = 3)))
 ```
+
 Walktrap actually gets it right, too.  
 
 And on to the non-hierarchical communities:
@@ -100,7 +109,8 @@ title(main=c$algorithm, sub=paste("modularity:",
                                   formatC(modularity(karate, cl2),digits = 3)))
 
 ```
-Infomap does pretty well, though it split the H community into two.  
+
+Infomap does pretty well, too.  
 
 ```{r}
 c <- comms[[4]]
@@ -109,7 +119,8 @@ title(main=c$algorithm, sub=paste("modularity:",
                                   formatC(modularity(karate, cl2),digits = 3)))
 
 ```
-Label Prop does basically the same as Infomap. 
+
+Label Prop splits nearly the same as Infomap, though it sub-factions the true A community. 
 
 ```{r}
 c <- comms[[6]]
@@ -118,6 +129,7 @@ title(main=c$algorithm, sub=paste("modularity:",
                                   formatC(modularity(karate, cl2),digits = 3)))
 
 ```
+
 Multilevel wants to sub-faction the true A community.  
 
 
@@ -128,6 +140,7 @@ title(main=c$algorithm, sub=paste("modularity:",
                                   formatC(modularity(karate, cl2),digits = 3)))
 
 ```
+
 Optimal?  Not so much.  Same as Multilevel.  
 
 ```{r}
@@ -137,7 +150,8 @@ title(main=c$algorithm, sub=paste("modularity:",
                                   formatC(modularity(karate, cl2),digits = 3)))
 
 ```
-Spinglass, same as above.  
+
+Spinglass, similar to above.  
 
 
 # Part 2
