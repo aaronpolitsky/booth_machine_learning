@@ -5,9 +5,10 @@ date: "November 17, 2015"
 output: pdf_document
 ---
 
+
 # Part 1
 ```{r, message=FALSE}
-
+set.seed(99)
 library(igraph)
 library(igraphdata)
 data(karate, package = "igraphdata")
@@ -156,7 +157,7 @@ Spinglass, similar to above.
 
 # Part 2
 
-```{r, eval=F}
+```{r}
 wg = read.graph("wikipedia.gml", "gml")
 summary(wg)
 
@@ -168,54 +169,247 @@ wgu = as.undirected(wg)
 summary(wgu)
 
 # compute communities and visually inspect if they make sense
-
+```
+```{r, eval=F}
 system.time(lb <- cluster_label_prop(wgu))
 system.time(fg <- cluster_fast_greedy(wgu))
 system.time(lv <- cluster_louvain(wgu))
 system.time(wt <- cluster_walktrap(wg))  
 system.time(im <- cluster_infomap(wg))
-
-system.time(lgl.layout <- layout_with_lgl(wgu))
-
-system.time( {
-  plot(wgu,
-     layout=lgl.layout, #, 
-     vertex.color=fg
-    )
-  title(main="Fast Greedy")
-})
-
-system.time({
-  plot(wgu,
-     layout=lgl.layout, #, 
-     vertex.color=lb
-    )
-  title(main="Label Propagation")
-})
-
-system.time({
-  plot(wgu,
-     layout=lgl.layout, #, 
-     vertex.color=lv
-    )
-  title(main="Louvain")
-})
-
-system.time({
-  plot(wg,
-     layout=lgl.layout, #, 
-     vertex.color=wt
-    )
-  title(main="Walktrap")
-})
-
-system.time({
-  plot(wg,
-     layout=lgl.layout, #, 
-     vertex.color=im
-    )
-  title(main="Infomap")
-})
-
+system.time(le <- cluster_leading_eigen(wg))
+```
+```{r, echo=F}
+load("wiki.comms.Rda")
+lb <- comms[[1]]
+fg <- comms[[2]]
+lv <- comms[[3]]
+wt <- comms[[4]]
+im <- comms[[5]]
+le <- comms[[6]]
 
 ```
+
+I'm omitting some methods which seem like they would take too long. 
+
+This graph seems to be cumbersome to visually inspect:
+![Wikipedia!](fg_lgl.png)
+
+## Analysis of vertex labels
+As opposed to graphing.  
+
+###Fast Greedy:
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(fg)==1], 15)
+```
+```
+ [1] "Fibrillarin"                          "Sealant"                             
+ [3] "Berthelot&apos;s reagent"             "Isoprostane"                         
+ [5] "Metal-insulator transition"           "Resource energy"                     
+ [7] "Englert-Greenberger duality relation" "Resistome"                           
+ [9] "Periodic table (block)"               "Criegee rearrangement"               
+[11] "Hexafluoropropylene"                  "Sleeping pad"                        
+[13] "Transition rule"                      "Batch reactor"                       
+[15] "Cafergot" 
+```
+Seems like the first group is scientific. 
+
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(fg)==5], 15)
+```
+```
+ [1] "Sufism"                     "Uniform Final Evaluation"   "Jobseeker&apos;s Allowance"
+ [4] "Puppy love"                 "Populism"                   "Central Russian dialects"  
+ [7] "Gallup poll"                "Executive officer"          "General Secretary"         
+[10] "Major History of Islam"     "Chinese silver"             "Urban Gothic"              
+[13] "Gathering place"            "Ab-Zohr"                    "Byronic hero"
+```
+Some of these might be related. 
+
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(fg)==25], 15)
+```
+```
+ [1] "Corflu"                                            
+ [2] "Distinguish"                                       
+ [3] "Ad Astra (convention)"                             
+ [4] "World Fantasy Convention"                          
+ [5] "Case law"                                          
+ [6] "Acting president"                                  
+ [7] "Glamourcon"                                        
+ [8] "Majority opinion"                                  
+ [9] "Eurofurence"                                       
+[10] "List of Presidents of the American Bar Association"
+[11] "MegaCon"                                           
+[12] "Marcon (convention)"                               
+[13] "Michael S. Greco"                                  
+[14] "Legal case"                                        
+[15] "Foolscap"    
+```
+
+Conventions?
+
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(fg)==50], 15)
+```
+```
+ [1] "Worshipful Company of Coopers"                             
+ [2] "Worshipful Company of Gardeners"                           
+ [3] "Worshipful Company of Weavers"                             
+ [4] "Mottos of the Livery Companies of the City of London"      
+ [5] "Worshipful Company of Girdlers"                            
+ [6] "Worshipful Company of Cordwainers"                         
+ [7] "Worshipful Company of Coachmakers and Coach Harness Makers"
+ [8] "Worshipful Company of Dyers"                               
+ [9] "Worshipful Company of Poulters"                            
+[10] "Worshipful Company of Innholders"                          
+[11] "Worshipful Company of Fletchers"                           
+[12] "Worshipful Company of Tylers and Bricklayers"              
+[13] "Worshipful Company of Tin Plate Workers"                   
+[14] "Worshipful Company of Plumbers"                            
+[15] "Worshipful Company of Makers of Playing Cards"  
+```
+
+Yep.  Mostly.
+
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(fg)==100], 10)
+```
+```
+[1] "List of volcanoes in the United Kingdom"                 
+ [2] "List of volcanoes in Germany"                            
+ [3] "List of volcanoes in Guadeloupe"                         
+ [4] "List of volcanoes in Ascension Island"                   
+ [5] "List of volcanoes in Netherlands Antilles"               
+ [6] "Lists of volcanoes"                                      
+ [7] "List of volcanoes in French Southern and Antarctic Lands"
+ [8] "List of volcanoes in Wallis Islands"                     
+ [9] "List of volcanoes in Western Samoa"                      
+[10] "List of volcanoes in Martinique"  
+```
+
+I'm convinced.  
+
+Let's see how others did:
+
+### Label Propagation:
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(lb)==2], 15)
+```
+```
+ [1] "Telecommunications Industry Association"       "Leapfrogging"                                 
+ [3] "Telephone card"                                "Link protocol"                                
+ [5] "Internet Radio Linking Project"                "The Strangest Secret"                         
+ [7] "Telenet"                                       "Worldwide Digital Cordless Telecommunications"
+ [9] "Call set-up time"                              "Malicious Caller Identification"              
+[11] "Fluency Voice Technology"                      "Synchronizer"                                 
+[13] "Foreign exchange office"                       "Digital communications"                       
+[15] "Out-of-band"   
+```
+
+These look to be telecom related.  
+
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(lb)==12], 15)
+```
+```
+ [1] "Mylogon"                      "GoToMyPC Pro"                 "PrintableString"             
+ [4] "LMHOSTS"                      "XHTML Mobile Profile"         "COMPEQ"                      
+ [7] "EXeem"                        "NetBIOS"                      "TeamSpeex"                   
+[10] "Virtual microscope"           "Stub (distributed computing)" "Port knocking"               
+[13] "TCP/IP stack fingerprinting"  "Reverse proxy"                "Computer data logging"      
+```
+
+computer networking. 
+
+### Louvain:
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(lv)==678], 15)
+```
+```
+ [1] "Canonical form (Boolean algebra)" "Inequation"                      
+ [3] "Tsirelson space"                  "Spence&apos;s function"          
+ [5] "Scott information system"         "Quasi-finite morphism"           
+ [7] "List of mathematicians (V)"       "Algebraic graph theory"          
+ [9] "List of mathematicians (D)"       "Nowhere-zero flows"              
+[11] "Hereditary ring"                  "Fisher&apos;s z-distribution"    
+[13] "K-finite"                         "Hilbert&apos;s sixth problem"    
+[15] "Subsequential limit"     
+```
+
+Mathy
+
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(lv)==259], 15)
+```
+```
+ [1] "Sensory Logical Extrovert"   "Champion (role variant)"     "Ethical Sensory Extrovert"  
+ [4] "Counselor (Role Variant)"    "Ethical Sensory Introvert"   "Healer (Role Variant)"      
+ [7] "Sensory Ethical Introvert"   "Protector (role variant)"    "Mastermind (Role Variant)"  
+[10] "True Colors Inc."            "Provider (role variant)"     "Intuitive Logical Extrovert"
+[13] "Intuitive Ethical Introvert" "Ethical Intuitive Introvert" "Logical Sensory Introvert"  
+```
+
+Personality?
+
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(lv)==803], 15)
+```
+```
+ [1] "Quiz Call"                                     "Sandra Corleone"                              
+ [3] "Chinese art"                                   "Design methods"                               
+ [5] "List of New York City housing cooperatives"    "Garden designer"                              
+ [7] "Confucius Plaza"                               "Paulie Fortunato"                             
+ [9] "Design firm"                                   "Design"                                       
+[11] "Society of London Art Dealers"                 "Timeline of the War in Afghanistan (May 2002)"
+[13] "Momo Barone"                                   "Inverter (air conditioning)"                  
+[15] "Blade"     
+```
+
+Not so sure about this one. 
+
+### Infomap
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(im)==1], 15)
+```
+```
+ [1] "Ring homomorphism"                    "Rule of nines (mathematics)"         
+ [3] "Wheel theory"                         "Multiplicative distance"             
+ [5] "Primitive ring"                       "Ultrapower"                          
+ [7] "Philosophy of mathematics education"  "Algebraic element"                   
+ [9] "Associative algebra"                  "Example of a non-associative algebra"
+[11] "Splitting field"                      "Macaulay computer algebra system"    
+[13] "Graded vector space"                  "Ordered field"                       
+[15] "Moore method"      
+```
+
+Mathy.
+
+```{r, eval=F}
+set.seed(99)
+sample(get.vertex.attribute(wgu, "label")[membership(im)==387], 15)
+```
+```
+ [1] "Angelic Society"                    "Egbo"                              
+ [3] "Power behind the throne"            "Secret society"                    
+ [5] "Bow Down (Mind of Mencia)"          "Skull and Dagger"                  
+ [7] "Abraham ben Levi Conque"            "Camarilla (history)"               
+ [9] "Lineage-bonded society"             "Leopard Society"                   
+[11] "Secrecy (sociology)"                "Thomasine Church (Gnostic)"        
+[13] "Religion in Nigeria"                "Village-bonded society"            
+[15] "Conspiracy theory (disambiguation)"
+```
+
+Secret societies and Carlos Mencia. Carlos Mencia runs a secret society!
+
+Well, I could go on, but I can see these are pretty effective from just crunching on the graphs.  
