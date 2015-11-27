@@ -8,5 +8,6 @@ se.hawaii <- read.table("data/51004h2014.txt", col.names = col.names)
 waimea.13 <- read.table("data/51201h2013.txt", col.names = col.names)
 waimea.14 <- read.table("data/51201h2014.txt", col.names = col.names) 
 
-alaska.13 <- read.table("data/46072h2013.txt", col.names = col.names) 
-alaska.14 <- read.table("data/46072h2014.txt", col.names = col.names) 
+alaska.13 <- read.table("data/46070h2013.txt", col.names = col.names) 
+alaska.14 <- read.table("data/46070h2014.txt", col.names = col.names) 
+

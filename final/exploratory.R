@@ -6,6 +6,7 @@ winter.nw.pacific.swells <-
   (diablo$MM %in% c(10,11,12,1,2)) & 
   (diablo$WVHT > 1.5) & (diablo$WVHT < 3)
 
+library(plotrix)
 polar.plot(diablo$WVHT[winter.nw.pacific.swells], 
            polar.pos = diablo$MWD[winter.nw.pacific.swells], start = 90, 
            clockwise = T, 
@@ -26,8 +27,8 @@ ak.14.time.diffs  <- (alaska.14$datetime[2:nrow(alaska.14)] - alaska.14$datetime
 wai.13.time.diffs <- (waimea.13$datetime[2:nrow(waimea.13)] - waimea.13$datetime[1:nrow(waimea.13)-1])
 ak.13.time.diffs  <- (alaska.13$datetime[2:nrow(alaska.13)] - alaska.13$datetime[1:nrow(alaska.13)-1])
 
-count(wai.13.time.diffs)
-count(ak.13.time.diffs)
+table(wai.13.time.diffs)
+table(ak.13.time.diffs)
 
 plot(xt.wa.13$WVHT)
 plot(xt.wa.14$WVHT)
