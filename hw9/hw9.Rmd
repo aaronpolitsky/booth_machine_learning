@@ -1,0 +1,10 @@
+---
+title: "Homework, The Last"
+author: "Aaron Politsky"
+date: "December 3, 2015"
+output: pdf_document
+---
+
+Part 1
+```{r}
+```
