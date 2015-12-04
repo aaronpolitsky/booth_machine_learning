@@ -5,6 +5,152 @@ date: "December 3, 2015"
 output: pdf_document
 ---
 
-Part 1
+# Part 1
+
+```{r, echo = FALSE, message= FALSE}
+########################
+#
+# Part 1
+#
+########################
+
+emails = read.csv("emails.csv", stringsAsFactors=FALSE)
+emails$spam = factor(emails$spam, labels = c("ham", "spam"))
+
+# we will split data into train and test according to 
+#   sampling_vector
+set.seed(1)
+num_emails = nrow(emails)
+sampling_vector = sample(num_emails, floor(0.8 * num_emails))
+
+library(tm)
+library(SnowballC)
+
+# create corpus
+corpus = Corpus(VectorSource(emails$text))
+```
+
+After we load up the emails and create a Corpus, let's preprocess it and create the document term matrix.
 ```{r}
+corpus = tm_map(corpus, content_transformer(removeNumbers))
+corpus = tm_map(corpus, content_transformer(removePunctuation))
+corpus = tm_map(corpus, content_transformer(tolower))
+corpus = tm_map(corpus, content_transformer(removeWords), stopwords("english"))
+corpus = tm_map(corpus, content_transformer(stripWhitespace))
+
+dtm = DocumentTermMatrix(corpus)
+```
+
+We'll use a sparsity value of .99 at first
+```{r}
+# next we remove infrequent words
+# we keep columns that are less than 0.99 percent sparse
+# this is the parameter that you will need to tune in the homework
+sparse_dtm = removeSparseTerms(x=dtm, sparse = 0.99)
+sparse_dtm
+
+# convert all elements to binary
+# The occurrence of the word fantastic tells us a lot 
+# The fact that it occurs 5 times may not tell us much more
+sparse_dtm = weightBin(sparse_dtm)
+
+# split into train and test using sampling_vector
+df = as.data.frame(as.matrix(sparse_dtm))
+df_train = df[sampling_vector,]
+df_test = df[-sampling_vector,]
+spam_train = emails$spam[sampling_vector]
+spam_test = emails$spam[-sampling_vector]
+
+library(e1071)
+```
+
+## Naive Bayes
+Let's train our classification model:
+```{r}
+### your code for classification goes below
+nb_model = naiveBayes(df_train, spam_train)
+
+if (file.exists("nb_train_predictions.RData")) {
+  load("nb_train_predictions.RData")
+} else {
+  nb_train_predictions = predict(nb_model, df_train) 
+  save(nb_train_predictions, file = "nb_train_predictions.RData")
+}
+mean(nb_train_predictions == spam_train)
+table(actual = spam_train, predictions = nb_train_predictions)
+
+# compute test error
+if (file.exists("nb_test_predictions.RData")) {
+  load("nb_test_predictions.RData")
+} else {
+  nb_test_predictions = predict(nb_model, df_test)
+  save(nb_test_predictions, file = "nb_test_predictions.RData")
+}
+```
+
+Our test accuracy is:
+```{r}
+mean(nb_test_predictions == spam_test)
+table(actual = spam_test, predictions = nb_test_predictions)
+```
+
+## Stemming
+Let's try Stemming
+```{r}
+
+# also try stemming as a preprocessing step
+stemmed = tm_map(corpus, stemDocument, language = "english")
+stemmed.dtm = DocumentTermMatrix(stemmed) 
+stemmed.dtm = removeSparseTerms(x=stemmed.dtm, sparse = 0.99)
+stemmed.dtm = weightBin(stemmed.dtm)
+stemmed_df = as.data.frame(as.matrix(stemmed.dtm))
+stemmed_df_train = stemmed_df[sampling_vector,]
+stemmed_df_test = stemmed_df[-sampling_vector,]
+
+# train model on stemmed corpora
+model_stem = naiveBayes(stemmed_df_train, spam_train)
+if (file.exists("nb_test_predictions_stem.RData")) {
+  load("nb_test_predictions_stem.RData")
+} else {
+  nb_test_predictions_stem = predict(model_stem, stemmed_df_test)
+  save(nb_test_predictions_stem, file = "nb_test_predictions_stem.RData")
+}
+```
+
+Our test accuracy using stemming is:
+```{r}
+mean(nb_test_predictions_stem == spam_test)
+table(actual = spam_test, predictions = nb_test_predictions_stem)
+```
+
+## Different values of Sparsity
+Let's try a range of sparsity values:
+```{r}
+# try different values of sparsity
+stemmed.dtm = DocumentTermMatrix(stemmed) 
+sparsity <- seq(0.9, 0.99, by = .02)
+dtms.by.sparsity <- lapply(sparsity, function(sp) {
+  as.data.frame(as.matrix(weightBin(removeSparseTerms(x=stemmed.dtm, sparse = sp))))
+})
+
+if (file.exists("nb.test.predictions.by.sparsity.Rda")) {
+  load("nb.test.predictions.by.sparsity.Rda")
+} else {
+  nb.test.predictions.by.sparsity <- 
+    lapply(dtms.by.sparsity, function(dtm) {
+      df.train = dtm[sampling_vector,]
+      df.test  = dtm[-sampling_vector,]
+      nb_model = naiveBayes(df.train, spam_train)
+      nb_test_predictions = predict(nb_model, df.test)
+    })
+  save(nb.test.predictions.by.sparsity, file = "nb.test.predictions.by.sparsity.Rda")
+}
+names(nb.test.predictions.by.sparsity) <- sparsity
+```
+
+Our test accuracy as a function of sparsity is: 
+```{r}
+sapply(nb.test.predictions.by.sparsity, function(nb_test_predictions) 
+  mean(nb_test_predictions == spam_test)
+)
 ```
