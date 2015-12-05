@@ -172,22 +172,32 @@ library(igraph)
 # block matrix -- assortative
 # our graph will have three communities
 # try playing with this matrix to obtain different types of graphs
-M = matrix(c( 0.6, 0.01, 0.01,
-              0.01, 0.6,  0.01,
-              0.01, 0.01, 0.6), 
+eps <- .03 # epsilon
+f.e <- .5 # fraud-accomplice
+M = matrix(c( eps,  f.e,   eps,
+              f.e, 2*eps,  f.e - 2*eps,
+              eps, f.e - 2*eps, (1-eps)/2), 
            nrow = 3)
 
 # sample a random graph
-# 30 vertices grouped into 3 communities with 10 nodes each
-rg = sample_sbm(30,                   # number of nodes in a random graph 
-                pref.matrix = M,      # stochastic block matrix M that tells us probability of forming a link between nodes -- needs to be symmetric for undirected graphs
-                block.sizes = c(10,10,10),  # how many nodes belong to each community 
-                loops = F,            # no loops (vertex that connects to itself)
-                directed = F          # we want an undirected graph 
-                ) 
+# 100 nodes grouped into 3 communities
+num.fraudsters <- num.accomplices <- 5
+num.honest <- 90
+rg = 
+  sample_sbm(num.fraudsters + num.accomplices + num.honest, # number of nodes in a random graph 
+             pref.matrix = M,      # stochastic block matrix M that tells us probability of forming a link between nodes -- needs to be symmetric for undirected graphs
+             block.sizes = c(num.fraudsters,
+                             num.accomplices,
+                             num.honest),  # how many nodes belong to each community 
+             loops = F,            # no loops (vertex that connects to itself)
+             directed = F          # we want an undirected graph 
+  ) 
 
 # membership vector used to color vertices 
-membership_vector = c(rep(1, 10), rep(2, 10), rep(3, 10))
+membership_vector = c(rep(1, num.fraudsters), 
+                      rep(2, num.accomplices), 
+                      rep(3, num.honest))
+
 plot_layout = layout.fruchterman.reingold(rg)
 plot(rg, 
      vertex.color=membership_vector,
@@ -244,8 +254,8 @@ angle.diffs = tapply(angles, as.factor(angles), function(x) {
 })
 angles[order(angles)] = unlist(angle.diffs)
 plot.1 <- ggplot(data = memberships) +
-  geom_segment(aes(x = c(0, 0, 1),  y = c(0, 1, 0),
-                   xend = c(0, 1, 0), yend = c(1, 0, 0))) +
+  #geom_segment(aes(x = c(0, 0, 1),  y = c(0, 1, 0),
+  #                 xend = c(0, 1, 0), yend = c(1, 0, 0))) +
   geom_point(aes(x = theta.1, y = theta.3, color = colors)) +
   scale_colour_manual(values = structure(memberships$colors, names = memberships$colors)) +
   scale_x_continuous(breaks=seq(0, 1, length.out=5),

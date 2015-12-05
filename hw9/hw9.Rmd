@@ -154,3 +154,6 @@ sapply(nb.test.predictions.by.sparsity, function(nb_test_predictions)
   mean(nb_test_predictions == spam_test)
 )
 ```
+
+```{r child = 'hw9.2.Rmd'}
+```
