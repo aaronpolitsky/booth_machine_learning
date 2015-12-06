@@ -1,28 +1,45 @@
+---
+output: pdf_document
+---
 # Part 2
 
-
 ```{r, echo=F, message=F}
+set.seed(1)
 library(igraph)
 ```
 
 Specify a stochastic block matrix:
+We believe fraudsters don't often trade with themselves or with honest, but mostly with accomplices.  
+Accomplices try to look normal by trading a lot with honest people, and occasionally with fraudsters. 
+Honest trade with accomplices and themselves, but rarely with fraudsters.  
 ```{r}
-# block matrix -- assortative
+# stochastic block matrix 
 # our graph will have three communities
 eps <- .021 # epsilon
-f.e <- .5 # fraud-accomplice
-M = matrix(c( eps,  f.e,   eps,
-              f.e, 2*eps,  1-f.e - 2*eps,
-              eps, 1-f.e -2*eps, 1-(1-f.e - 2*eps)), 
-           nrow = 3)
 
+M = matrix(c( 
+  eps,     1-2*eps,       eps,
+  1-2*eps,   2*eps,  .5-2*eps,
+  eps,    .5-2*eps,  .5-2*eps
+), 
+nrow = 3)
+M
+```
+These are symmetric:
+
+```{r}
+t(M) == M
+```
+
+Let's build our graph
+```{r}
 # sample a random graph
 # 100 nodes grouped into 3 communities
 num.fraudsters <- num.accomplices <- 5
 num.honest <- 90
 rg = 
-  sample_sbm(num.fraudsters + num.accomplices + num.honest, # number of nodes in a random graph 
-             pref.matrix = M,      # stochastic block matrix M that tells us probability of forming a link between nodes -- needs to be symmetric for undirected graphs
+  sample_sbm(num.fraudsters + num.accomplices + num.honest, # number of nodes  
+             pref.matrix = M,      
              block.sizes = c(num.fraudsters,
                              num.accomplices,
                              num.honest),  # how many nodes belong to each community 
@@ -40,24 +57,15 @@ plot(rg,
      vertex.color=membership_vector,
      layout = plot_layout)
 ```
+Our plot shows that the fraudsters are separate from the rest, but it's hard to identify the honest from accomplices, which is the point of accomplices.  
 
 ```{r}
-# given a graph, we would like to uncover parameters of the model 
-# that is likely to have generated the random graph
-# in this example, we know that the graph was generated according to the stochastic block model
-# we can compare the estimated parameters to the true parameters
-#
-# however, in practice, we only see a graph (that is, its adjacency matrix) 
-# to evaluate our model, we use domain knowledge. for example, whether community 
-# memberships of nodes make sense 
-
-## estimate parameters using the lda package
 library(lda)
 
 result =
-  mmsb.collapsed.gibbs.sampler(get.adjacency(rg),  # first parameter is the adjacency matrix
-                               K = 3,              # we are fitting the graph using a stochastic block model with three groups
-                               num.iterations=10000,    # this and the following parameters specify parameters of the fitting procedure  -- don't worry about this
+  mmsb.collapsed.gibbs.sampler(get.adjacency(rg),  # the adjacency matrix
+                               K = 3,              # 3 groups
+                               num.iterations=10000,    
                                alpha = 0.1,
                                burnin = 500L,
                                beta.prior = list(1, 1))
@@ -67,10 +75,30 @@ result =
 memberships = with(result, t(document_sums) / colSums(document_sums))
 head(memberships,20)
 ```
-Many of these are clearly probably in one community versus the others. 
+Many of these are clearly predicted to be from one community versus the others, indicating that we think they likely belong to a given community.  
+
+We expect the first five to be fraudsters, group 1:
+```{r}
+head(memberships[1:5,])
+```
+We see that they are classified together.  
+
+And the expected accomplices:
+```{r}
+memberships[6:10,]
+```
+These are mainly classified together as well. 
+
+The honest ones?
+```{r}
+memberships[11:30,]
+mean(memberships[11:100,1])
+mean(memberships[11:100,2])
+mean(memberships[11:100,3])
+```
+The honest ones look to be grouped as well. 
 
 ```{r}
-
 # the estimate of the stochastic block matrix M 
 ratio = with(result, blocks.pos / (blocks.pos + blocks.neg))
 ratio
@@ -78,4 +106,4 @@ ratio
 # actual M
 M
 ```
-The ratio doesn't seem to approximate M very well, though.  
+Community assignments got shifted around, but we classified consistently.  If we were to rearrange one of these matrices so the groupings were consistent, we might see them line up well.  
