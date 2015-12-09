@@ -1,3 +1,8 @@
+# 46059: 359NM west of San Francisco
+# 46237: San Francisco Bar
+buoys <- c("46059", "46237")
+years <- c("2008", "2011")
+
 source('get_data.R')
 source('clean.data.helper.R')
 
@@ -78,14 +83,19 @@ train.12hr <- merge.lag.list(xts.input.list$`46059h2008.txt.gz`, half.day.lag.li
 train.6hr  <- merge.lag.list(xts.input.list$`46059h2008.txt.gz`, six.hr.lag.list)
 train.3hr  <- merge.lag.list(xts.input.list$`46059h2008.txt.gz`, three.hr.lag.list)  
 
+count(diff(index(train.3hr)))
+
 # lets work on our output.  First, standardize its time. 
 # Create an empty timestamp sequence
-empty.timestamp.seq <- seq(from=as.POSIXct(index(xts.output.list$`46237h2008.txt.gz`)[1]), 
-                           to = as.POSIXct(tail(index(xts.output.list$`46237h2008.txt.gz`), n=1))+900, 
-                           by = "30 mins") 
+xts.empty <- xts(order.by = 
+                   seq(from=as.POSIXct(index(xts.output.list$`46237h2008.txt.gz`)[1]), 
+                       to = as.POSIXct(tail(index(xts.output.list$`46237h2008.txt.gz`), n=1))+900, 
+                       by = "30 mins")
+                 )
 
 # how do they compare?
-length(empty.timestamp.seq)
+length(index(xts.empty))
+
 length(index(xts.output.list$`46237h2008.txt.gz`))
 
 # we are missing some values.  Let's identify the distribution of missing time
@@ -95,4 +105,11 @@ count(diff(index(xts.output.list$`46237h2008.txt.gz`)))
 # Mostly 30min intervals, a number of hour-long ones that we can fill in, and the occasional longer interval. 
 
 # Let's merge them together now
+xts.merged.output <- merge(xts.empty, xts.output.list$`46237h2008.txt.gz`)
+
+# And fill in gaps of up to and incl. 120 min
+xts.output <- na.locf(xts.merged.output, maxgap = 3)
+
+# now we have some observations that are on :30  and between half hours.  toss the in-betweeners
+xts.output <- merge(xts.empty, na.locf(xts.output), join = "inner")
 

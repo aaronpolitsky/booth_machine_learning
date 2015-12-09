@@ -8,11 +8,8 @@ col.names <- c("YY","MM","DD","hh","mm",
 
 data.path <- "data/"
 
-# 46059: 359NM west of San Francisco
-# 46237: San Francisco Bar
-buoys <- c("46059", "46237")
-years <- c("2008", "2011")
 asdf <- expand.grid(buoys, years)
+library(plyr)
 filenames <- alply(expand.grid(buoys, years), 1, function(row) 
   as.character(paste0(row$Var1, "h", row$Var2, ".txt.gz")))
 
