@@ -29,3 +29,16 @@ go.surf <- function(data) {
     (data$DPD > 12) & (data$DPD < 20) 
   conditions
 }
+
+make.lag.list <- function(xts.data, lags, lag.hrs) {
+  lapply((1:lags)*lag.hrs*3600, function(lagsecs) {
+    xts(xts.data, index(xts.data)+lagsecs) 
+  })
+}
+
+merge.lag.list <- function(xts.base, lag.list) {
+  for(l in lag.list) {
+    xts.base <- merge(xts.base, l)
+  }
+  xts.base
+}

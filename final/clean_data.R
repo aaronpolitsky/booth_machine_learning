@@ -79,12 +79,6 @@ sapply(xt.wa.14, function(x) mean(is.na(x)))
 days <- 6
 lag.hrs <- 6
 lags <- days*24/lag.hrs
-  
-make.lag.list <- function(xts.data, lags, lag.hrs, orig.datetime) {
-  lapply((1:lags)*lag.hrs*3600, function(lagsecs) {
-    xts(xts.data, orig.datetime+lagsecs) 
-  })
-}
 
 lagged.ak70.14.list <- make.lag.list(xt.ak70.14, lags, lag.hrs, ak70.14$datetime)
 
