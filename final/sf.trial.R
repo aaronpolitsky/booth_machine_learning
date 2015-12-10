@@ -261,6 +261,17 @@ hyper.params <-
     activation=c("Tanh", "TanhWithDropout")
   )
 
+
+hyper.params <- 
+  list(
+    epochs=c(2), 
+    hidden=list(c(1024, 1024, 1024),# c(1024,512,256), 
+                #c(512, 512),
+                c(1024), #c(512), c(256), c(128), 
+                c(64)),
+    activation=c("Tanh", "TanhWithDropout")
+  )
+
 set.seed(99)
 system.time(
   dl.grid <- h2o.grid(
@@ -277,7 +288,9 @@ dl.grid.models <- lapply(dl.grid@model_ids, function(id) h2o.getModel(id))
 #model.paths.12hr.10offset.ca.or.sf.2008.train <- 
 #  lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
 #save(model.paths.12hr.10offset.ca.or.sf.2008.train, 
-#     file="model.paths.12hr.10offset.ca.or.sf.2008.train")
+#     file="model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
+load(file = "model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
+dl.grid.models <- lapply(model.paths.12hr.10offset.ca.or.sf.2008.train, function(p) h2o.loadModel(p))
 
 ptest.list <- lapply(dl.grid.models, function(m) h2o.performance(m, test_hex))
 cm.test.list <- lapply(ptest.list, function(ptest) h2o.confusionMatrix(ptest))
