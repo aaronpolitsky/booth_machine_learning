@@ -75,13 +75,13 @@ lapply(xts.train.input.list, function(x) count(diff(index(x))))
 lapply(xts.test.input.list, function(x) count(diff(index(x))))
 # input is hourly
 
-xts.empty.train.input <- 
+xts.empty.train <- 
   xts(order.by = 
         seq(from=as.POSIXct("2007-01-01", tz="GMT"), 
             to = as.POSIXct("2008-01-01", tz="GMT"), 
             by = "60 mins") 
   )
-xts.empty.test.input <- 
+xts.empty.test <- 
   xts(order.by = 
         seq(from=as.POSIXct("2014-01-01", tz="GMT"), 
             to = as.POSIXct("2015-01-01", tz="GMT"), 
@@ -102,14 +102,14 @@ lapply(xts.test.input.list, function(x) count(diff(index(x))))
 
 # merge into our standardized time
 xts.merged.train.input <-
-  merge(xts.empty.train.input, 
+  merge(xts.empty.train, 
         xts.train.input.list[[1]],
         xts.train.input.list[[2]])
 sum(complete.cases(xts.merged.train.input))
 dim(xts.merged.train.input)
 
 xts.merged.test.input <-
-  merge(xts.empty.test.input, 
+  merge(xts.empty.test, 
         xts.test.input.list[[1]],
         xts.test.input.list[[2]])
 sum(complete.cases(xts.merged.test.input))
@@ -129,8 +129,8 @@ plot(complete.cases(xts.test.input))
 dim(xts.test.input) # we still need to collapse down to the
 
 # now we need to only keep those obs that are on our hourly grid.  toss the in-betweeners
-xts.train.input <- merge(xts.empty.train.input, xts.train.input, join = "inner")
-xts.test.input <- merge(xts.empty.test.input, xts.test.input, join = "inner")
+xts.train.input <- merge(xts.empty.train, xts.train.input, join = "inner")
+xts.test.input <- merge(xts.empty.test, xts.test.input, join = "inner")
 xts.test.input <- na.locf(xts.test.input, maxgap = 4) # needed to do something
 sum(complete.cases(xts.train.input))
 sum(complete.cases(xts.test.input))
@@ -169,21 +169,119 @@ sum(complete.cases(input.test.window))
 #########################################
 #  Output Prep
 
-output.cols <- c("WVHT", "DPD",  "APD",  "MWD",  "WTMP", "go.surf")
-
-xts.train.output.list <-lapply(train.output.list, function(x)
-  xts(x[,output.cols], order.by = x$datetime)
-)
-xts.test.output.list <-lapply(test.output.list, function(x)
-  xts(x[,output.cols], order.by = x$datetime)
-)
-
-# create our go.surf condition:
 train.output.list[[1]]$go.surf <- go.surf(train.output.list[[1]])
 test.output.list[[1]]$go.surf <- go.surf(test.output.list[[1]])
-table(train.output.list[[1]]$go.surf)
-table(test.output.list[[1]]$go.surf)
-# plenty of true
+
+xts.train.output.list <- lapply(train.output.list, function(x)
+  xts(x[,output.cols], order.by = x$datetime)
+)
+xts.test.output.list <- lapply(test.output.list, function(x)
+  xts(x[,output.cols], order.by = x$datetime)
+)
+
+xts.train.output <- xts.train.output.list[[1]]
+xts.test.output <- xts.test.output.list[[1]]
+
+names(xts.train.output) = "go.surf"
+names(xts.test.output) = "go.surf"
+
+length(index(xts.empty.train))
+length(index(xts.train.output))
+length(index(xts.empty.test))
+length(index(xts.test.output))
+# probably double time
+
+# we are missing some values.  Let's identify the distribution of missing time
+count(diff(index(xts.train.output)))
+count(diff(index(xts.test.output)))
+
+# Let's merge them together now
+xts.merged.train.output <- merge(xts.empty.train, xts.train.output)
+xts.merged.test.output  <- merge(xts.empty.test,  xts.test.output)
+
+xts.train.output <- na.locf(xts.merged.train.output, maxgap = 3)
+xts.test.output  <- na.locf(xts.merged.test.output,  maxgap = 3)
+
+# now we have some observations that are on :30  and between half hours.  toss the in-betweeners
+xts.train.output <- merge(xts.empty.train, xts.train.output, join = "inner")
+xts.test.output <- merge(xts.empty.test, xts.test.output, join = "inner")
+# now we have our output series on the :30 and :60
+
+dim(xts.train.output)
+dim(xts.test.output)
+sum(is.na(xts.train.output))
+sum(is.na(xts.test.output))
+
+##### Training and Testing
+
+
+train <- merge(xts.train.output$go.surf, input.train.window)
+test  <- merge(xts.test.output$go.surf,   input.test.window)
+
+mean(train$go.surf, na.rm=T)
+mean(test$go.surf, na.rm=T)
+
+library(h2o)
+
+# start or connect to h2o server
+h2oServer <- h2o.init(max_mem_size="4g", nthreads=-1)
+
+# we need to load data into h2o format
+train_hex = as.h2o(data.frame(x=train[,-1], y=as.factor(train[,1])))
+test_hex = as.h2o(data.frame(x=test[,-1], y=as.factor(test[,1])))
+
+predictors <- 1:(ncol(train_hex)-1)
+response <- ncol(train_hex)
+
+hyper.params <- 
+  list(
+    epochs=c(2,5), 
+    hidden=list(c(1024, 1024, 1024), #c(1024,512,256), 
+#      c(512, 512),
+      c(1024), #c(512), c(256), c(128), 
+      c(64)),
+    activation=c("Tanh", "TanhWithDropout"),
+    input_dropout_ratio=c(0, .2)
+  )
+
+set.seed(99)
+system.time(
+  dl.grid <- h2o.grid(
+    algorithm = "deeplearning",
+    x=predictors, y=response,
+    training_frame=train_hex,
+    classification_stop=-1,  # Turn off early stopping
+    l1=1e-5,
+    hyper_params = hyper.params
+  ) 
+)
+summary(dl.grid)
+dl.grid.models <- lapply(dl.grid@model_ids, function(id) h2o.getModel(id))
+#model.paths.12hr.10offset.ca.or.sf.2008.train <- 
+#  lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
+#save(model.paths.12hr.10offset.ca.or.sf.2008.train, 
+#     file="model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
+#load(file = "model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
+#dl.grid.models <- lapply(model.paths.12hr.10offset.ca.or.sf.2008.train, function(p) h2o.loadModel(p))
+
+ptest.list <- lapply(dl.grid.models, function(m) h2o.performance(m, test_hex))
+cm.test.list <- lapply(ptest.list, function(ptest) h2o.confusionMatrix(ptest))
+
+library(plyr)
+ptest.df <- ldply(cm.test.list, 
+                  function(cm) 
+                    c(tot.test.error.rate = cm$Error[3]))
+ptest.df <- cbind(ptest.df, expand.grid((hyper.params)))
+ptest.df
+best.model.index <- which.min(ptest.df$tot.test.error.rate)
+best.dl.model <- dl.grid.models[[best.model.index]]
+cm.test.list[[best.model.index]]
+
+plot(ptest.list[[best.model.index]])
+#prediction.2011 <- as.data.frame(h2o.predict(dl.grid.models[[best.model.index]], newdata = test_hex))
+
+
+
 
 
 
