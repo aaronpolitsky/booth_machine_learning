@@ -33,13 +33,10 @@ sapply(data.list, dim)
 train.list <- data.list[c(1:length(buoys))]
 train.input.list <- train.list[1:(length(buoys)-1)]
 train.output.list <- train.list[length(buoys)]
+
 test.list  <- data.list[-c(1:length(buoys))]
 test.input.list <- test.list[1:(length(buoys)-1)]
 test.output.list <- test.list[length(buoys)]
-
-lapply(train.list, function(x) head(x[c(4:5)],10))
-lapply(test.list, function(x) head(x[c(4:5)], 10))
-# data appears to be hourly at beginning
 
 library(xts)
 
@@ -71,6 +68,122 @@ sapply(names(xts.test.input.list), function(name) {
 #  Let's use 66 and 70, which are geographically distant, 
 #    train on 2007, test on 2014
 
+#########################################
+#  Input Prep
+
+lapply(xts.train.input.list, function(x) count(diff(index(x))))
+lapply(xts.test.input.list, function(x) count(diff(index(x))))
+# input is hourly
+
+xts.empty.train.input <- 
+  xts(order.by = 
+        seq(from=as.POSIXct("2007-01-01", tz="GMT"), 
+            to = as.POSIXct("2008-01-01", tz="GMT"), 
+            by = "60 mins") 
+  )
+xts.empty.test.input <- 
+  xts(order.by = 
+        seq(from=as.POSIXct("2014-01-01", tz="GMT"), 
+            to = as.POSIXct("2015-01-01", tz="GMT"), 
+            by = "60 mins") 
+  )
+
+dim(xts.train.input.list[[1]])
+dim(xts.train.input.list[[2]])
+dim(xts.test.input.list[[1]])
+dim(xts.test.input.list[[2]])
+
+lapply(xts.train.input.list, function(x) count(diff(index(x))))
+# training data is pretty tight given it was active
+
+lapply(xts.test.input.list, function(x) count(diff(index(x))))
+# as is test, but a bit less so
+
+
+# merge into our standardized time
+xts.merged.train.input <-
+  merge(xts.empty.train.input, 
+        xts.train.input.list[[1]],
+        xts.train.input.list[[2]])
+sum(complete.cases(xts.merged.train.input))
+dim(xts.merged.train.input)
+
+xts.merged.test.input <-
+  merge(xts.empty.test.input, 
+        xts.test.input.list[[1]],
+        xts.test.input.list[[2]])
+sum(complete.cases(xts.merged.test.input))
+dim(xts.merged.test.input)
+# some time issues
+
+# fill some gaps up to a limit
+xts.train.input <- na.locf(xts.merged.train.input, maxgap = 4)
+sum(complete.cases(xts.train.input))
+plot(complete.cases(xts.merged.train.input))
+plot(complete.cases(xts.merged.train.input))
+
+xts.test.input  <- na.locf(xts.merged.test.input, maxgap = 4)
+sum(complete.cases(xts.test.input))
+plot(complete.cases(xts.merged.test.input))
+plot(complete.cases(xts.test.input))
+dim(xts.test.input) # we still need to collapse down to the
+
+# now we need to only keep those obs that are on our hourly grid.  toss the in-betweeners
+xts.train.input <- merge(xts.empty.train.input, xts.train.input, join = "inner")
+xts.test.input <- merge(xts.empty.test.input, xts.test.input, join = "inner")
+xts.test.input <- na.locf(xts.test.input, maxgap = 4) # needed to do something
+sum(complete.cases(xts.train.input))
+sum(complete.cases(xts.test.input))
+
+dim(xts.train.input)
+dim(xts.test.input)
+# very nice.
+
+# Lets create a lagged window of input.  Since we are far from our destination,
+# we can and will need to use a wider window centered at a longer time away from
+# the destination due to swell travel time
+
+
+input.train.window <- 
+  merge.lag.list(
+    make.lag.list(xts.train.input, 
+                  lags=36,  
+                  lag.hrs = 3,   
+                  offset.hrs = 60))
+
+dim(input.train.window)
+sum(complete.cases(input.train.window))
+
+input.test.window <- 
+  merge.lag.list(
+    make.lag.list(xts.test.input, 
+                  lags=36, 
+                  lag.hrs = 3, 
+                  offset.hrs = 60)
+  )
+plot(complete.cases(input.test.window))
+dim(input.test.window)
+sum(complete.cases(input.test.window))
+
+
+#########################################
+#  Output Prep
+
+output.cols <- c("WVHT", "DPD",  "APD",  "MWD",  "WTMP", "go.surf")
+
+xts.train.output.list <-lapply(train.output.list, function(x)
+  xts(x[,output.cols], order.by = x$datetime)
+)
+xts.test.output.list <-lapply(test.output.list, function(x)
+  xts(x[,output.cols], order.by = x$datetime)
+)
+
+# create our go.surf condition:
+train.output.list[[1]]$go.surf <- go.surf(train.output.list[[1]])
+test.output.list[[1]]$go.surf <- go.surf(test.output.list[[1]])
+table(train.output.list[[1]]$go.surf)
+table(test.output.list[[1]]$go.surf)
+# plenty of true
 
 
 
