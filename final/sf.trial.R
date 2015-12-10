@@ -144,29 +144,27 @@ xts.input <- merge(xts.empty, na.locf(xts.input), join = "inner")
 # let's create a window of time in our input buoys:  how about 3 days of lags
 #half.day.lag.list <- make.lag.list(xts.input.list$`46059h2008.txt.gz`, lags = 6, lag.hrs = 12)
 #six.hr.lag.list <- make.lag.list(xts.input.list$`46059h2008.txt.gz`, lags=12, lag.hrs = 6)
-three.hr.lag.list <- make.lag.list(xts.input, lags=24, lag.hrs = 3)
-every.hr.lag.list <- make.lag.list(xts.input, lags=72, lag.hrs = 1)
+#input.lag.list <- make.lag.list(xts.input, lags=24, lag.hrs = 3)
+input.lag.list <- make.lag.list(xts.input, lags=72, lag.hrs = 1)
 
 
 #train.12hr <- merge.lag.list(xts.input.list$`46059h2008.txt.gz`, half.day.lag.list)
 #train.6hr  <- merge.lag.list(xts.input.list$`46059h2008.txt.gz`, six.hr.lag.list)
-input.train.3hr  <- merge.lag.list(xts.input, three.hr.lag.list)
+input.train  <- merge.lag.list(xts.input, input.lag.list)
 #input.train.hourly <- merge.lag.list(xts.input, every.hr.lag.list)
 
-count(diff(index(input.train.3hr)))
+count(diff(index(input.train)))
 
-dim(input.train.3hr)
-sum(complete.cases(input.train.3hr))
+dim(input.train)
+sum(complete.cases(input.train))
 # plenty of complete rows
-
-dim(input.train.3hr)
 
 # OK, but it takes swells time to travel to our output buoy, so for our
 # observation at the beach, we need to consider input that happened some time
 # before.  Our input window should be enough to cover this.  The middle lags
 # will be more important.
 
-all <- merge(xts.output$go.surf, input.train.3hr)
+all <- merge(xts.output$go.surf, input.train)
 #all <- merge(xts.output$go.surf, input.train.hourly)
 
 library(h2o)
@@ -195,7 +193,7 @@ response <- ncol(train_hex)
 
 hyper.params <- 
   list(
-    epochs=c(1), 
+    epochs=c(2,10), 
     hidden=list(c(1024, 1024, 1024), c(1024,512,256), 
                 c(512, 512),
                 c(1024), c(512), c(256), c(128), 
@@ -204,7 +202,7 @@ hyper.params <-
   )
 
 set.seed(99)
-system.time({
+system.time(
   dl.grid <- h2o.grid(
     algorithm = "deeplearning",
     x=predictors, y=response,
@@ -213,7 +211,7 @@ system.time({
     l1=1e-5,
     hyper_params = hyper.params
   ) 
-})
+)
 summary(dl.grid)
 dl.grid.models <- lapply(dl.grid@model_ids, function(id) h2o.getModel(id))
 model.paths <- lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
