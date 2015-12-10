@@ -30,15 +30,16 @@ go.surf <- function(data) {
   conditions
 }
 
-make.lag.list <- function(xts.data, lags, lag.hrs) {
-  lapply((1:lags)*lag.hrs*3600, function(lagsecs) {
-    xts(xts.data, index(xts.data)+lagsecs) 
+make.lag.list <- function(xts.data, lags, lag.hrs, offset.hrs=0) {
+  lapply((0:lags)*lag.hrs*3600, function(lagsecs) {
+    xts(xts.data, index(xts.data) + lagsecs + offset.hrs*3600) 
   })
 }
 
-merge.lag.list <- function(xts.base, lag.list) {
-  for(l in lag.list) {
-    xts.base <- merge(xts.base, l)
+merge.lag.list <- function(lag.list) {
+  base <- lag.list[[1]]
+  for(l in lag.list[-1]) {
+    base <- merge(base, l)
   }
-  xts.base
+  base
 }
