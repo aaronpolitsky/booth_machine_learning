@@ -75,8 +75,6 @@ ggplot(merged[window], aes(x=index(merged[window]))) +
 #   geom_line(aes(y=WVHT.1, color="output")) 
 # # and maybe a 10hr travel time here
 
-
-
 # lets work on our output.  First, standardize its time. 
 # Create an empty timestamp sequence
 xts.empty <- xts(order.by = 
@@ -108,6 +106,7 @@ sapply(xts.output, function(x) mean(is.na(x)))
 # Let's convert to hourly data, the easy way
 xts.output <- xts.output[seq(1, nrow(xts.output), by = 2)]
 
+##############
 #### Input ###
 
 xts.empty <- xts(order.by = 
@@ -117,24 +116,32 @@ xts.empty <- xts(order.by =
 )
 
 length(index(xts.empty))
-length(index(xts.input.list$`46059h2008.txt.gz`))
+length(index(xts.input.list[[1]]))
+length(index(xts.input.list[[2]]))
+
 # some missing observations. 
 
 count(diff(index(xts.input.list$`46059h2008.txt.gz`)))
 # Nice. only a few hourly obs are missing
 
+count(diff(index(xts.input.list$`46002h2008.txt.gz`)))
+# only a couple outings over two hours.  Plus that big one in the summer.  
+
 # Let's merge them together now
-xts.merged.input <- merge(xts.empty, xts.input.list$`46059h2008.txt.gz`)
+xts.merged.input <- merge(xts.empty, 
+                          xts.input.list[[1]],
+                          xts.input.list[[2]])
+sum(complete.cases(xts.merged.input))
 
 # And fill in gaps of up to 120 min
-xts.input <- na.locf(xts.merged.input, maxgap = 1)
+xts.input <- na.locf(xts.merged.input, maxgap = 2)
+sum(complete.cases(xts.input))
 
 # now we have some observations that are on our hourly grid  toss the in-betweeners
 xts.input <- merge(xts.empty, na.locf(xts.input), join = "inner")
-# now we have our output series on the :30 and :60
 
 
-# let's create a window of time in our input buoy:  how about 3 days of lags
+# let's create a window of time in our input buoys:  how about 3 days of lags
 #half.day.lag.list <- make.lag.list(xts.input.list$`46059h2008.txt.gz`, lags = 6, lag.hrs = 12)
 #six.hr.lag.list <- make.lag.list(xts.input.list$`46059h2008.txt.gz`, lags=12, lag.hrs = 6)
 three.hr.lag.list <- make.lag.list(xts.input, lags=24, lag.hrs = 3)
@@ -144,29 +151,27 @@ every.hr.lag.list <- make.lag.list(xts.input, lags=72, lag.hrs = 1)
 #train.12hr <- merge.lag.list(xts.input.list$`46059h2008.txt.gz`, half.day.lag.list)
 #train.6hr  <- merge.lag.list(xts.input.list$`46059h2008.txt.gz`, six.hr.lag.list)
 input.train.3hr  <- merge.lag.list(xts.input, three.hr.lag.list)
-input.train.hourly <- merge.lag.list(xts.input, every.hr.lag.list)
+#input.train.hourly <- merge.lag.list(xts.input, every.hr.lag.list)
 
-count(diff(index(input.train.hourly)))
-head(index(input.train.hourly))
-tail(index(input.train.hourly))
+count(diff(index(input.train.3hr)))
 
-dim(input.train.hourly)
-sum(complete.cases(input.train.hourly))
+dim(input.train.3hr)
+sum(complete.cases(input.train.3hr))
 # plenty of complete rows
 
-dim(input.train.hourly)
+dim(input.train.3hr)
 
 # OK, but it takes swells time to travel to our output buoy, so for our
 # observation at the beach, we need to consider input that happened some time
-# before.  Our input window should be enough to cover this.  The middle lags will be more important. 
-
+# before.  Our input window should be enough to cover this.  The middle lags
+# will be more important.
 
 all <- merge(xts.output$go.surf, input.train.3hr)
 #all <- merge(xts.output$go.surf, input.train.hourly)
 
 library(h2o)
 
-set.seed(99)
+set.seed(99) 
 train.indices <- sample(1:nrow(all), size = nrow(all)*.75)
 train <- all[train.indices,]
 test <- all[-train.indices,]
@@ -177,10 +182,6 @@ mean(test$go.surf, na.rm=T)
 
 #########################
 # modeling
-
-# try a simple logit for now. 
-#glm.model <- glm(go.surf ~ ., family = binomial(), data = train)
-#pred <- predict(glm.model, type = "response", newdata = test)
 
 # start or connect to h2o server
 h2oServer <- h2o.init(max_mem_size="4g", nthreads=-1)
@@ -195,9 +196,9 @@ response <- ncol(train_hex)
 hyper.params <- 
   list(
     epochs=c(1), 
-    hidden=list(c(1024, 1024, 1024), #c(1024,512,256), 
-#                c(512, 512),
-#                c(1024), c(512), c(256), c(128), 
+    hidden=list(c(1024, 1024, 1024), c(1024,512,256), 
+                c(512, 512),
+                c(1024), c(512), c(256), c(128), 
                 c(64)),
     activation=c("Tanh", "TanhWithDropout")
   )
@@ -223,9 +224,11 @@ cm.test.list <- lapply(ptest.list, function(ptest) h2o.confusionMatrix(ptest))
 library(plyr)
 ptest.df <- ldply(cm.test.list, 
                   function(cm) 
-                    c(tot.test.error.rate = cm$Error$total))
+                    c(tot.test.error.rate = cm$Error[3]))
 ptest.df <- cbind(ptest.df, expand.grid((hyper.params)))
 
 best.model.index <- which.min(ptest.df$tot.test.error.rate)
 best.dl.model <- dl.grid.models[[best.model.index]]
 cm.test.list[[best.model.index]]
+
+plot(ptest.list[[best.model.index]])
