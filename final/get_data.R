@@ -8,7 +8,7 @@ col.names <- c("YY","MM","DD","hh","mm",
 
 data.path <- "data/"
 
-asdf <- expand.grid(buoys, years)
+asdf <- expand.grid(years, buoys)
 library(plyr)
 filenames <- alply(expand.grid(buoys, years), 1, function(row) 
   as.character(paste0(row$Var1, "h", row$Var2, ".txt.gz")))
