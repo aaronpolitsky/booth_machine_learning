@@ -1,3 +1,4 @@
+library(xts)
 clean.data <- function(data) {
   data$datetime <- 
     strptime(with(data[, 1:5], 

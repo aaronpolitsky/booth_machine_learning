@@ -123,17 +123,20 @@ plot(complete.cases(xts.merged.train.input))
 plot(complete.cases(xts.merged.train.input))
 
 xts.test.input  <- na.locf(xts.merged.test.input, maxgap = 4)
-sum(complete.cases(xts.test.input))
+mean(complete.cases(xts.test.input))
 plot(complete.cases(xts.merged.test.input))
 plot(complete.cases(xts.test.input))
-dim(xts.test.input) # we still need to collapse down to the
+dim(xts.test.input) # we still need to collapse down to the grid
 
 # now we need to only keep those obs that are on our hourly grid.  toss the in-betweeners
 xts.train.input <- merge(xts.empty.train, xts.train.input, join = "inner")
+mean(complete.cases(xts.train.input))
 xts.test.input <- merge(xts.empty.test, xts.test.input, join = "inner")
-xts.test.input <- na.locf(xts.test.input, maxgap = 4) # needed to do something
-sum(complete.cases(xts.train.input))
-sum(complete.cases(xts.test.input))
+mean(complete.cases(xts.test.input))
+# interpolate with a spline curve up to a point
+xts.test.input <- na.spline(xts.test.input, maxgap = 36) # needed to do something
+mean(complete.cases(xts.test.input))
+plot(complete.cases(xts.test.input))
 
 dim(xts.train.input)
 dim(xts.test.input)
@@ -147,23 +150,23 @@ dim(xts.test.input)
 input.train.window <- 
   merge.lag.list(
     make.lag.list(xts.train.input, 
-                  lags=36,  
-                  lag.hrs = 3,   
-                  offset.hrs = 60))
+                  lags=96,  
+                  lag.hrs = 2,   
+                  offset.hrs = 72))
 
 dim(input.train.window)
-sum(complete.cases(input.train.window))
+mean(complete.cases(input.train.window))
 
 input.test.window <- 
   merge.lag.list(
     make.lag.list(xts.test.input, 
-                  lags=36, 
-                  lag.hrs = 3, 
-                  offset.hrs = 60)
+                  lags=96, 
+                  lag.hrs = 2, 
+                  offset.hrs = 72)
   )
 plot(complete.cases(input.test.window))
 dim(input.test.window)
-sum(complete.cases(input.test.window))
+mean(complete.cases(input.test.window))
 
 
 #########################################
@@ -173,10 +176,10 @@ train.output.list[[1]]$go.surf <- go.surf(train.output.list[[1]])
 test.output.list[[1]]$go.surf <- go.surf(test.output.list[[1]])
 
 xts.train.output.list <- lapply(train.output.list, function(x)
-  xts(x[,output.cols], order.by = x$datetime)
+  xts(x$go.surf, order.by = x$datetime)
 )
 xts.test.output.list <- lapply(test.output.list, function(x)
-  xts(x[,output.cols], order.by = x$datetime)
+  xts(x$go.surf, order.by = x$datetime)
 )
 
 xts.train.output <- xts.train.output.list[[1]]
@@ -209,8 +212,11 @@ xts.test.output <- merge(xts.empty.test, xts.test.output, join = "inner")
 
 dim(xts.train.output)
 dim(xts.test.output)
-sum(is.na(xts.train.output))
-sum(is.na(xts.test.output))
+mean(is.na(xts.train.output))
+mean(is.na(xts.test.output))
+
+count(xts.test.output[complete.cases(input.train.window)])
+
 
 ##### Training and Testing
 
@@ -235,30 +241,40 @@ response <- ncol(train_hex)
 
 hyper.params <- 
   list(
-    epochs=c(2,5), 
-    hidden=list(c(1024, 1024, 1024), #c(1024,512,256), 
-#      c(512, 512),
-      c(1024), #c(512), c(256), c(128), 
-      c(64)),
+    epochs=c(2), 
+    hidden=list(#c(1024, 1024, 1024), 
+      #c(1024,512,256)
+      c(64,64,64),
+      c(512, 512),
+      #,c(1024), #c(512), c(256), c(128)
+      c(256),
+      c(64)
+    ),
     activation=c("Tanh", "TanhWithDropout"),
-    input_dropout_ratio=c(0, .2)
+    #    input_dropout_ratio=c(0, .2),
+    #    l1 = c(1e-5, 0.2)
+    #activation=c("TanhWithDropout"),
+    input_dropout_ratio=c(0, .2),
+    l1 = c(1e-5, 0.2)
   )
+expand.grid(hyper.params)
 
 set.seed(99)
-system.time(
+runtime <- system.time(
   dl.grid <- h2o.grid(
     algorithm = "deeplearning",
     x=predictors, y=response,
     training_frame=train_hex,
     classification_stop=-1,  # Turn off early stopping
-    l1=1e-5,
+    #l1=1e-5,
+    variable_importances = T,
     hyper_params = hyper.params
   ) 
 )
 summary(dl.grid)
 dl.grid.models <- lapply(dl.grid@model_ids, function(id) h2o.getModel(id))
-#model.paths.12hr.10offset.ca.or.sf.2008.train <- 
-#  lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
+model.paths <- 
+  lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
 #save(model.paths.12hr.10offset.ca.or.sf.2008.train, 
 #     file="model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
 #load(file = "model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
@@ -279,7 +295,7 @@ cm.test.list[[best.model.index]]
 
 plot(ptest.list[[best.model.index]])
 #prediction.2011 <- as.data.frame(h2o.predict(dl.grid.models[[best.model.index]], newdata = test_hex))
-
+print(runtime)
 
 
 
