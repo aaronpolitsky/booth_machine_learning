@@ -275,8 +275,10 @@ summary(dl.grid)
 dl.grid.models <- lapply(dl.grid@model_ids, function(id) h2o.getModel(id))
 model.paths <- 
   lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
-#save(model.paths.12hr.10offset.ca.or.sf.2008.train, 
-#     file="model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
+#save(model.paths, 
+#     file="model.paths.12.11.125pm.Rda")
+#save(hyper.params, 
+#     file="hyper.params.12.11.125pm.Rda")
 #load(file = "model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
 #dl.grid.models <- lapply(model.paths.12hr.10offset.ca.or.sf.2008.train, function(p) h2o.loadModel(p))
 
