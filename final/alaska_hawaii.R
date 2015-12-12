@@ -105,20 +105,20 @@ xts.merged.train.input <-
   merge(xts.empty.train, 
         xts.train.input.list[[1]],
         xts.train.input.list[[2]])
-sum(complete.cases(xts.merged.train.input))
+mean(complete.cases(xts.merged.train.input))
 dim(xts.merged.train.input)
 
 xts.merged.test.input <-
   merge(xts.empty.test, 
         xts.test.input.list[[1]],
         xts.test.input.list[[2]])
-sum(complete.cases(xts.merged.test.input))
+mean(complete.cases(xts.merged.test.input))
 dim(xts.merged.test.input)
 # some time issues
 
 # fill some gaps up to a limit
 xts.train.input <- na.locf(xts.merged.train.input, maxgap = 4)
-sum(complete.cases(xts.train.input))
+mean(complete.cases(xts.train.input))
 plot(complete.cases(xts.merged.train.input))
 plot(complete.cases(xts.merged.train.input))
 
@@ -134,6 +134,17 @@ mean(complete.cases(xts.train.input))
 xts.test.input <- merge(xts.empty.test, xts.test.input, join = "inner")
 mean(complete.cases(xts.test.input))
 # interpolate with a spline curve up to a point
+before <- xts.test.input
+after <-  na.spline(xts.test.input, maxgap = 36)
+merged <- merge(after, before)
+window <- "2014-09"
+ggplot(merged[window], aes(x=index(merged[window]))) + 
+  geom_line(aes(y=WVHT, color="After")) + 
+  geom_line(aes(y=WVHT.2, color = "Before")) + 
+  scale_color_discrete(name="") +
+  ylab("Wave Height") + xlab("Date") +
+  ggtitle("Imputing Data Using Cubic Spline Interpolation")
+
 xts.test.input <- na.spline(xts.test.input, maxgap = 36) # needed to do something
 mean(complete.cases(xts.test.input))
 plot(complete.cases(xts.test.input))
@@ -152,7 +163,7 @@ input.train.window <-
     make.lag.list(xts.train.input, 
                   lags=96,  
                   lag.hrs = 2,   
-                  offset.hrs = 72))
+                  offset.hrs = 96))
 
 dim(input.train.window)
 mean(complete.cases(input.train.window))
@@ -162,7 +173,7 @@ input.test.window <-
     make.lag.list(xts.test.input, 
                   lags=96, 
                   lag.hrs = 2, 
-                  offset.hrs = 72)
+                  offset.hrs = 96)
   )
 plot(complete.cases(input.test.window))
 dim(input.test.window)
@@ -245,7 +256,8 @@ hyper.params <-
     hidden=list(#c(1024, 1024, 1024), 
       #c(1024,512,256)
       c(64,64,64),
-      c(512, 512),
+      c(64,64),
+    #  c(512, 512),
       #,c(1024), #c(512), c(256), c(128)
       c(256),
       c(64)
@@ -273,14 +285,16 @@ runtime <- system.time(
 )
 summary(dl.grid)
 dl.grid.models <- lapply(dl.grid@model_ids, function(id) h2o.getModel(id))
-model.paths <- 
-  lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
+#model.paths <- 
+#  lapply(dl.grid.models, function(m) h2o.saveModel(m, path="models"))
 #save(model.paths, 
-#     file="model.paths.12.11.125pm.Rda")
+#     file="model.paths.12.11.150pm.Rda")
 #save(hyper.params, 
-#     file="hyper.params.12.11.125pm.Rda")
+#     file="hyper.params.12.11.150pm.Rda")
+load(file="model.paths.12.11.150pm.Rda")
+load(file="hyper.params.12.11.150pm.Rda")
 #load(file = "model.paths.12hr.10offset.ca.or.sf.2008.train.Rda")
-#dl.grid.models <- lapply(model.paths.12hr.10offset.ca.or.sf.2008.train, function(p) h2o.loadModel(p))
+dl.grid.models <- lapply(model.paths, function(p) h2o.loadModel(p))
 
 ptest.list <- lapply(dl.grid.models, function(m) h2o.performance(m, test_hex))
 cm.test.list <- lapply(ptest.list, function(ptest) h2o.confusionMatrix(ptest))
@@ -295,7 +309,7 @@ best.model.index <- which.min(ptest.df$tot.test.error.rate)
 best.dl.model <- dl.grid.models[[best.model.index]]
 cm.test.list[[best.model.index]]
 
-plot(ptest.list[[best.model.index]])
+plot(ptest.list[[best.model.index]], main = "True Positive Rate vs. False Positive Rate\n96 hour Forecast")
 #prediction.2011 <- as.data.frame(h2o.predict(dl.grid.models[[best.model.index]], newdata = test_hex))
 print(runtime)
 

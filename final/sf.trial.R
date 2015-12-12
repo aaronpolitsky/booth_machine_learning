@@ -77,21 +77,28 @@ sapply(merged, function(x) mean(is.na(x)))
 
 window <- "2011-10/2011-11"
 ggplot(merged[window], aes(x=index(merged[window]))) + 
-  geom_line(aes(y=WVHT, color = "input CA")) + 
-  geom_line(aes(y=WVHT.1, color="input OR")) +  
-  geom_line(aes(y=WVHT.2, color="output CA")) 
-  
+  geom_line(aes(y=WVHT, color = "Source CA")) + 
+  geom_line(aes(y=WVHT.1, color="Source OR")) +  
+  geom_line(aes(y=WVHT.2, color="Dest SF")) + 
+  scale_color_discrete(name="Buoy") +
+  ylab("Wave Height") + xlab("Date") 
+
 window <- "2011-11-1/2011-11-15"
 ggplot(merged[window], aes(x=index(merged[window]))) + 
-  geom_line(aes(y=WVHT, color = "input CA")) + 
-  geom_line(aes(y=WVHT.1, color="input OR")) +  
-  geom_line(aes(y=WVHT.2, color="output CA")) 
+  geom_line(aes(y=WVHT, color = "Source CA")) + 
+  geom_line(aes(y=WVHT.1, color="Source OR")) +  
+  geom_line(aes(y=WVHT.2, color="Dest SF")) + 
+  scale_color_discrete(name="Buoy") +
+  ylab("Wave Height") + xlab("Date") +
+  ggtitle("Detecting Swell Travel Time")
 
 window <- "2011-11-10/2011-11-12"
 ggplot(merged[window], aes(x=index(merged[window]))) + 
-  geom_line(aes(y=WVHT, color = "input CA")) + 
-  geom_line(aes(y=WVHT.1, color="input OR")) +  
-  geom_line(aes(y=WVHT.2, color="output CA")) 
+  geom_line(aes(y=WVHT, color = "Source CA")) + 
+  geom_line(aes(y=WVHT.1, color="Source OR")) +  
+  geom_line(aes(y=WVHT.2, color="Dest SF")) + 
+  scale_color_discrete(name="Buoy") +
+  ylab("Wave Height") + xlab("Date") 
 
 # lets work on our output.  First, standardize its time. 
 # Create an empty timestamp sequence
